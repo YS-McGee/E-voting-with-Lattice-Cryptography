@@ -2,6 +2,7 @@ import sys
 import random
 import numpy as np
 
+print('test')
 np.set_printoptions(suppress=True)
 
 # Shamir's Secret Sharing implementation
