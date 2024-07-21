@@ -2,7 +2,6 @@ import sys
 import random
 import numpy as np
 
-print('test')
 np.set_printoptions(suppress=True)
 
 # Shamir's Secret Sharing implementation
@@ -25,7 +24,7 @@ def generate_shares(secret, num_shares, threshold):
 # Lattice-based commitment scheme
 def lattice_commitment(share, randomness, C, n, q):
     """Create a lattice-based commitment of the share and randomness."""
-    #print(f"Share: {share}")
+    # print(f"Share: {share}")
     # print(f"Randomness: {randomness}")
     # print(f"C: {C}")
     share_vector = np.zeros((n+1, 1))
@@ -34,10 +33,16 @@ def lattice_commitment(share, randomness, C, n, q):
 
     return commitment
 
-def open_commitment(commitment, share, randomness, A, q):
+def open_commitment(trustees, n, q):
     """Open a lattice-based commitment to verify the share."""
-    opened = (np.dot(A, share) + randomness) % q
-    return np.array_equal(commitment, opened)
+    # opened = (np.dot(A, share) + randomness) % q
+    # return np.array_equal(commitment, opened)
+    for trustee in trustees:
+        c_matrix = trustee['C_matrix']
+        c_sum = trustee['sum_commitments']
+        r_sum = trustee['sum_randomness']
+        opened_share = (c_sum - np.dot(c_matrix, r_sum)) % q
+        trustee['opened_share'] = opened_share[-1][0]
 
 def voter(Nv, num_shares, threshold):
     voters = []
@@ -56,7 +61,7 @@ def voter(Nv, num_shares, threshold):
     return voters
 
 def trustee(num_trustees, n, q):
-    trustees = [{'trustee_id': i, 'received_shares': [], 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None} for i in range(1, num_trustees + 1)]
+    trustees = [{'trustee_id': i, 'received_shares': [], 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None, 'opened_share': None} for i in range(1, num_trustees + 1)]
 
     # Key Generation
     def keygen(n):
@@ -68,7 +73,7 @@ def trustee(num_trustees, n, q):
         #print(A)
         B = np.random.randint(low=0, high=q, size=(1, 2*n+1)) % q
         #print(B)
-        C = np.concatenate((A, B), axis=0) % q                              # C's dimension is (d+1)X(2d+1)
+        C = np.concatenate((A, B), axis=0) % q                              # C's dimension is (n+1)X(2n+1)
         #print(C)
         return C
 
@@ -82,13 +87,13 @@ def commit_shares(trustees, A, n, q):
     # print(f"\n[TRUSTEE] -- {trustees} \n")
     for trustee in trustees:
         # print(f"\n[TRUSTEE] -- {trustee}")
-        sum_commitment = np.zeros(A.shape[0])
-        # print(sum_commitment)
-        sum_randomness = np.zeros(A.shape[0])
+        # sum_commitment = np.zeros(A.shape[0])
+        # # print(sum_commitment)
+        # sum_randomness = np.zeros(A.shape[0])
 
         C = trustee['C_matrix']
-        test_sum_commitment = np.zeros(C.shape[1])
-        test_sum_randomness = np.zeros(C.shape[1])
+        test_sum_commitment = np.zeros(1)
+        test_sum_randomness = np.zeros(1)
         # print(test_randomness)
 
         # for share in trustee['received_shares']:
@@ -106,7 +111,7 @@ def commit_shares(trustees, A, n, q):
         for share in trustee['received_shares']:
             share_value = share['share_value']
             randomness = np.random.randint(low=0, high=q, size=(2*n+1, 1))  # Randomness for commitment
-            print(f"randomness:\n {randomness}")
+            #print(f"randomness:\n {randomness}")
             commitment = lattice_commitment(share_value, randomness, C, n, q)
             # print(f"commitment: {commitment}")
             trustee['commitments'].append({
@@ -116,10 +121,11 @@ def commit_shares(trustees, A, n, q):
             })
             test_sum_commitment = (test_sum_commitment + commitment) % q
             test_sum_randomness = (test_sum_randomness + randomness) % q
+
         trustee['sum_commitments'] = test_sum_commitment
         trustee['sum_randomness'] = test_sum_randomness
         
-        print(f"\n[TRUSTEE] -- {trustee}")
+        # print(f"\n[DEBUG] -- {trustee}")
 
 def sum_commitments(trustees, q):
     for trustee in trustees:
@@ -127,22 +133,23 @@ def sum_commitments(trustees, q):
         for commitment in trustee['commitments']:
             sum_commitment = (sum_commitment + commitment['commitment']) % q
         trustee['sum_commitments'] = sum_commitment
+        # print(f"\n[TRUSTEE] --\n{trustee}")
 
-def open_sum(trustees, A, q):
-    for trustee in trustees:
-        print(f"trustee {trustee}")
-        sum_commitment = trustee['sum_commitments']
-        sum_randomness = trustee['sum_randomness']
-        sum_share = sum([share['share_value'] for share in trustee['received_shares']]) % q
-        if open_commitment(sum_commitment, sum_share, sum_randomness, A, q):
-            # print(f"Trustee {trustee['trustee_id']} successfully opened the sum commitment.")
-            pass
-        else:
-            print(f"Trustee {trustee['trustee_id']} failed to open the sum commitment.")
-    total_sum_share = sum([sum([share['share_value'] for share in trustee['received_shares']]) for trustee in trustees]) % q
-    total_commitments_sum = sum([trustee['sum_commitments'] for trustee in trustees]) % q
-    print(f"Total sum of commitments from trustees:\n {total_commitments_sum}")
-    print(f"Total sum of actual votes: {total_sum_share}")
+# def open_sum(trustees, A, q):
+#     for trustee in trustees:
+#         #print(f"trustee {trustee}")
+#         sum_commitment = trustee['sum_commitments']
+#         sum_randomness = trustee['sum_randomness']
+#         sum_share = sum([share['share_value'] for share in trustee['received_shares']]) % q
+#         if open_commitment(sum_commitment, sum_share, sum_randomness, A, q):
+#             # print(f"Trustee {trustee['trustee_id']} successfully opened the sum commitment.")
+#             pass
+#         else:
+#             print(f"Trustee {trustee['trustee_id']} failed to open the sum commitment.")
+#     total_sum_share = sum([sum([share['share_value'] for share in trustee['received_shares']]) for trustee in trustees]) % q
+#     total_commitments_sum = sum([trustee['sum_commitments'] for trustee in trustees]) % q
+#     print(f"Total sum of commitments from trustees:\n {total_commitments_sum}")
+#     print(f"Total sum of actual votes: {total_sum_share}")
 
 def distribute_shares(voters, trustees):
     for voter in voters:
@@ -194,9 +201,6 @@ def main():
     q = 3389                                    # Large prime number for modulus as in Kyber
 
     voters_list = voter(Nv, num_shares, threshold)
-    for v in voters_list:
-        print(f"voters_list {v}")
-    
     trustees_list = trustee(num_trustees, n, q)
     # print(f"trustees_list {trustees_list}")
     
@@ -205,14 +209,23 @@ def main():
 
     # Trustees Main Operations
     commit_shares(trustees_list, A, n, q)
-    sum_commitments(trustees_list, q)
-    open_sum(trustees_list, A, q)
+    #print(f"[DEBUG] -- {trustees_list}")
+
+    # Each trsutee open the sum of shares
+    open_commitment(trustees_list, n, q)
+
+    # trustee_shares = np.zeros(num_trustees)
+    trustee_shares = [(t['trustee_id'], t['opened_share']) for t in trustees_list]
+    print(trustee_shares)
+
+    # sum_commitments(trustees_list, q)
+    # open_sum(trustees_list, A, q)
 
     for v in voters_list:
-        print(v)
+        print(f"[voters_list] -- {v}")
 
     for t in trustees_list:
-        print(t)
+        print(f"[trsutees_list] -- {t}")
 
 if __name__ == "__main__":
     main()
