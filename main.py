@@ -160,9 +160,26 @@ def distribute_shares(voters, trustees):
                 'share_value': share_value
             })
 
+# Lagrange interpolation function to compute sum of votes
+def lagrange_interpolation(shares, x, q):
+    total = 0
+    n = len(shares)
+    for i in range(n):
+        xi, yi = shares[i]
+        term = yi
+        for j in range(n):
+            if i != j:
+                xj, _ = shares[j]
+                # Compute the modular inverse
+                term *= (x - xj) * pow(xi - xj, -1, q)
+                term %= q
+        total += term
+        total %= q
+    return total
+
 def main():
 
-    Nv = 3          # number of voters
+    Nv = 5          # number of voters
     
     try:
         if len(sys.argv) > 2:
@@ -214,18 +231,18 @@ def main():
     # Each trsutee open the sum of shares
     open_commitment(trustees_list, n, q)
 
-    # trustee_shares = np.zeros(num_trustees)
-    trustee_shares = [(t['trustee_id'], t['opened_share']) for t in trustees_list]
-    print(trustee_shares)
-
     # sum_commitments(trustees_list, q)
     # open_sum(trustees_list, A, q)
+
+    for t in trustees_list:
+        print(f"[trsutees_list] -- {t}")
 
     for v in voters_list:
         print(f"[voters_list] -- {v}")
 
-    for t in trustees_list:
-        print(f"[trsutees_list] -- {t}")
+    trustee_shares = [(t['trustee_id'], t['opened_share']) for t in trustees_list]
+    secret_sum = lagrange_interpolation(trustee_shares, 0, q)
+    print("Reconstructed Secret Sum:", secret_sum)
 
 if __name__ == "__main__":
     main()
