@@ -7,7 +7,7 @@ from sage.all import *
 from sage.arith.misc import *
 
 # Constants
-N = 512
+N = 4
 q = 2**30
 sigma_1 = 0.84932180028801904272150283410288961971514109378435394286159953238339383120795466719298223538163406787061691601172910413284884326532697308797136114023
 LDRMX = 2**31 - 1
@@ -211,36 +211,106 @@ def numpy_to_sage_poly(np_array):
     coeffs = np_array.tolist()
     return R(coeffs[::-1])
 
+def reduce_poly_mod(poly):
+    return [(poly[i] - sum(poly[j] for j in range(N, len(poly)) if j - i == N)) for i in range(N)]
+
 def poly_mul_mod(a, b, mod_poly):
     """Multiply two polynomials and reduce modulo another polynomial."""
     return (a * b) % mod_poly
 
-def pair_gcd(f, g, q):
+def pair_gcd(f, g):
     """Compute the GCD of f and g with respect to the cyclotomic polynomial phi using extended GCD."""
     f = numpy_to_sage_poly(f)
     g = numpy_to_sage_poly(g)
 
     phi = Cyclo()
 
+    """
+    First compute Rf and test GCD(Rf,q)
+    """
     # Compute extended GCD
     gcd_f, rho_f, _ = xgcd(f, phi)
-    gcd_g, rho_g, _ = xgcd(g, phi)
-    
-    # Compute Rf and Rg
     Rf = poly_mul_mod(rho_f, f, phi)
-    Rg = poly_mul_mod(rho_g, g, phi)
-    
-    # Reduce Rf and Rg modulo q
+    # Reduce to modulo q
     Rf = Rf.constant_coefficient() % q
+
+    if gcd(Rf, q) != 1:
+        return False, None, None, None, None
+
+    """
+    Compute Rg and test GCD(Rf,Rg)
+    """
+    gcd_g, rho_g, _ = xgcd(g, phi)
+    Rg = poly_mul_mod(rho_g, g, phi)
+    # Reduce to modulo q
     Rg = Rg.constant_coefficient() % q
 
-    # Check GCD conditions
-    if gcd(Rf, Rg) != 1 or gcd(Rf, q) != 1:
-        print(f"gcd(Rf, Rg): {gcd(Rf, Rg)}")
-        print(f"gcd(Rf, q): {gcd(Rf, q)}")
-        return False, None, None, None, None, None, None
+    gcd_Rf_Rg, u, v = xgcd(Rf, Rg)
+
+    # Check GCD(Rf,Rg)
+    if gcd_Rf_Rg != 1:
+        return False, None, None, None, None
     
-    return True, Rf, Rg, rho_f, rho_g, gcd_f, gcd_g
+    return True, u, v, rho_f, rho_g
+
+def unique_reverse(coeffs):
+    """Compute the unique polynomial f_bar."""
+    return np.array([coeffs[0]] + [-coeffs[N-i] for i in range(1, N)])
+
+def poly_mult_mod(f, g):
+    # polynomial ring multiplication 
+    poly = [sum(f[i] * g[j] for i in range(len(f)) for j in range(len(g)) if i + j == k) for k in range(len(f) + len(g) - 1)]
+    return reduce_poly_mod(poly)
+
+def compute_k(f, g, F, G):
+    """Compute the reduction coefficient k."""
+    # print(f"f: {f}")
+    # print(f"g: {g}")
+    # v =poly_mult_mod(f, g)
+    # print(f"f*g: {v}")
+    # print(f"mod f*g: {reduce_poly_mod(v)}")
+    
+    f_bar = unique_reverse(f)
+    g_bar = unique_reverse(g)
+    print(f"f_bar type: {type(f_bar)}")
+    print(f"F type: {type(F)}")
+
+    nume = reduce_poly_mod(poly_mult_mod(F, f_bar) + poly_mult_mod(G, g_bar))
+    print(f"nume: {nume}")
+
+    return 1
+
+    # R = PolynomialRing(ZZ, 'x')
+    # x = R.gen()
+
+    # phi = PolynomialRing(ZZ, 'x').gen()**N + 1  # cyclotomic polynomial
+
+    # # Convert numpy arrays to Sage polynomials
+    # f_poly = R(list(f[::-1]))
+    # g_poly = R(list(g[::-1]))
+
+    #  # Compute f_bar and g_bar
+    # f_coeffs = np.array(f)
+    # g_coeffs = np.array(g)
+    # f_bar_coeffs = unique_reverse(f_coeffs)
+    # g_bar_coeffs = unique_reverse(g_coeffs)
+    # f_bar_poly = R(list(f_bar_coeffs[::-1]))
+    # g_bar_poly = R(list(g_bar_coeffs[::-1]))
+
+    # # Compute numerator and denominator
+    # numerator = reduce_poly_mod(f_bar_poly * F + g_bar_poly * G)
+    # denominator = reduce_poly_mod(f_poly * f_bar_poly + g_poly * g_bar_poly)
+
+    # # Compute the inverse of the denominator modulo phi
+    # a, iden, _ = xgcd(denominator, phi)
+    # k = reduce_poly_mod(numerator * iden)
+
+    # # Normalize and round the coefficients
+    # k_coeffs = np.array(k.list())
+    # k_coeffs = k_coeffs / int(a)
+    # k_coeffs_rounded = np.round(k_coeffs).astype(int)
+
+    # return R(list(k_coeffs_rounded[::-1]))
 
 def key_generation(N, q):
     sigma_f = 1.17 * np.sqrt(q / (2 * N))
@@ -257,12 +327,25 @@ def key_generation(N, q):
         print(f"norm: {norm}")
         # pgcd, alpha, beta, rho_f, rho_g = pair_gcd(f, g)
         # print(f"pgcd: {pgcd}")
-        valid, Rf, Rg, rho_f, rho_g, gcd_f, gcd_g = pair_gcd(f, g, q)
+        valid, u, v, rho_f, rho_g = pair_gcd(f, g)
 
         if norm <= 1.17 * np.sqrt(q) and valid:
             print("norm and pgcd ok!")
             break
         i += 1
+
+    print(f"u: {u}")
+    print(f"v: {v}")
+    print(f"rho_g: {rho_g}")
+
+    F = -q * v * rho_g
+    G = q * u * rho_f
+    # print(f"F: {F}")
+    # print(f"G: {G}")
+
+    k = compute_k(f, g, F, G)
+
+
 
     return f, g
 
