@@ -2,12 +2,10 @@ import numpy as np
 from numpy.fft import fft, ifft
 from scipy.stats import norm as scipy_norm
 from sympy import symbols, ZZ, Poly
-# from egcd import egcd
 from sage.all import *
-from sage.arith.misc import *
 
 # Constants
-N = 4
+N = 512
 q = 2**30
 sigma_1 = 0.84932180028801904272150283410288961971514109378435394286159953238339383120795466719298223538163406787061691601172910413284884326532697308797136114023
 LDRMX = 2**31 - 1
@@ -155,52 +153,6 @@ def gram_schmidt_norm(f, g):
     # print(f"norm_2: {norm_2}")
 
     return max(norm_1, norm_2)
-    
-# def Cyclo():
-#     """Generate the cyclotomic polynomial."""
-#     coeffs = [1] + [0]*(N-1) + [1]
-#     phi = Poly(coeffs, x, domain=ZZ)
-#     return phi
-
-# def pair_gcd(f, g):
-#     """Compute the GCD of f and g with respect to the cyclotomic polynomial phi using egcd."""
-#     phi = Cyclo()
-
-#     # Convert numpy arrays to Poly objects
-#     f = Poly(f[::-1], x, domain=ZZ)
-#     g = Poly(g[::-1], x, domain=ZZ)
-#     print(f"f: {f}")
-#     print(f"g: {g}")
-
-#     # Transform polynomials to their coefficient arrays
-#     f_coeffs = np.array(f.all_coeffs()[::-1], dtype=np.int64)
-#     g_coeffs = np.array(g.all_coeffs()[::-1], dtype=np.int64)
-#     print(f"f_coeffs: {f_coeffs}")
-#     print(f"g_coeffs: {g_coeffs}")
-#     phi_coeffs = np.array(phi.all_coeffs()[::-1], dtype=np.int64)
-
-#     # Compute the GCD using egcd for each coefficient
-#     res_f_gcd = np.zeros_like(f_coeffs)
-#     for i in range(len(f_coeffs)):
-#         res_f_gcd[i], _, _ = egcd(int(f_coeffs[i]), int(phi_coeffs[i]))
-#     print(f"res_f_gcd: {res_f_gcd}")
-#     if np.gcd.reduce(res_f_gcd) != 1:
-#         pgcd = ZZ(0)
-#         alpha = None
-#         beta = None
-#         rho_f = None
-#         rho_g = None
-#     else:
-#         res_g_gcd = np.zeros_like(g_coeffs)
-#         for i in range(len(g_coeffs)):
-#             res_g_gcd[i], _, _ = egcd(int(g_coeffs[i]), int(phi_coeffs[i]))
-#         pgcd = np.gcd.reduce(res_f_gcd)
-#         alpha = ZZ(1)
-#         beta = ZZ(1)
-#         rho_f = Poly(res_f_gcd[::-1], x, domain=ZZ)
-#         rho_g = Poly(res_g_gcd[::-1], x, domain=ZZ)
-
-#     return pgcd, alpha, beta, rho_f, rho_g
 
 def Cyclo():
     """Generate the cyclotomic polynomial."""
@@ -209,7 +161,16 @@ def Cyclo():
 def numpy_to_sage_poly(np_array):
     """Convert a numpy array to a SageMath polynomial."""
     coeffs = np_array.tolist()
-    return R(coeffs[::-1])
+    return R(coeffs[:])
+
+def sage_to_numpy(sage_poly):
+    # Extract coefficients and reverse to match numpy polynomial coefficient order (highest degree first)
+    coefficients = sage_poly.coefficients(sparse=False)
+    
+    # Convert to numpy array
+    numpy_array = np.array(coefficients)
+    
+    return numpy_array
 
 def reduce_poly_mod(poly):
     return [(poly[i] - sum(poly[j] for j in range(N, len(poly)) if j - i == N)) for i in range(N)]
@@ -219,9 +180,10 @@ def poly_mul_mod(a, b, mod_poly):
     return (a * b) % mod_poly
 
 def pair_gcd(f, g):
-    """Compute the GCD of f and g with respect to the cyclotomic polynomial phi using extended GCD."""
-    f = numpy_to_sage_poly(f)
-    g = numpy_to_sage_poly(g)
+    """SAGE env. Compute the GCD of f and g with respect to the cyclotomic polynomial phi using extended GCD."""
+    print(f"f type: {type(f)}")
+    sage_f = numpy_to_sage_poly(f)
+    sage_g = numpy_to_sage_poly(g)
 
     phi = Cyclo()
 
@@ -229,22 +191,14 @@ def pair_gcd(f, g):
     First compute Rf and test GCD(Rf,q)
     """
     # Compute extended GCD
-    gcd_f, rho_f, _ = xgcd(f, phi)
-    Rf = poly_mul_mod(rho_f, f, phi)
-    # Reduce to modulo q
-    Rf = Rf.constant_coefficient() % q
-
+    Rf, rho_f, _ = xgcd(sage_f, phi)
     if gcd(Rf, q) != 1:
         return False, None, None, None, None
 
     """
     Compute Rg and test GCD(Rf,Rg)
     """
-    gcd_g, rho_g, _ = xgcd(g, phi)
-    Rg = poly_mul_mod(rho_g, g, phi)
-    # Reduce to modulo q
-    Rg = Rg.constant_coefficient() % q
-
+    Rg, rho_g, _ = xgcd(sage_g, phi)
     gcd_Rf_Rg, u, v = xgcd(Rf, Rg)
 
     # Check GCD(Rf,Rg)
@@ -262,55 +216,97 @@ def poly_mult_mod(f, g):
     poly = [sum(f[i] * g[j] for i in range(len(f)) for j in range(len(g)) if i + j == k) for k in range(len(f) + len(g) - 1)]
     return reduce_poly_mod(poly)
 
+def poly_mult_fft(f, g):
+    size = len(f) + len(g) - 1
+    size_padded = 2 ** int(np.ceil(np.log2(size)))  # Next power of 2
+    f_padded = np.pad(f, (0, size_padded - len(f)))
+    g_padded = np.pad(g, (0, size_padded - len(g)))
+    
+    # FFT
+    fft_f = np.fft.fft(f_padded)
+    fft_g = np.fft.fft(g_padded)
+    
+    # Pointwise multiplication
+    fft_result = fft_f * fft_g
+    
+    # Inverse FFT
+    result = np.fft.ifft(fft_result)
+    result = np.round(result).astype(int)
+
+    # Polynomial Ring
+    # return reduce_poly_mod(result[:size])
+    return result[:size]
+
+def multiply_large_polynomials(poly1, poly2):
+    """
+    Multiply two polynomials with extremely large coefficients using SageMath's arbitrary-precision integers.
+    
+    Args:
+        poly1 (list): Coefficients of the first polynomial.
+        poly2 (list): Coefficients of the second polynomial.
+    
+    Returns:
+        list: Coefficients of the resulting polynomial after multiplication.
+    """
+    # Define a polynomial ring with ZZ coefficients
+    R = PolynomialRing(ZZ, 'x')
+    x = R.gen()
+    
+    # Convert lists to SageMath polynomials
+    P1 = R(poly1)
+    P2 = R(poly2)
+    
+    # Perform polynomial multiplication
+    P_result = P1 * P2
+    
+    # Convert the result back to a list of coefficients
+    result_coeffs = P_result.coefficients(sparse=False)
+    
+    return reduce_poly_mod(result_coeffs)
+
 def compute_k(f, g, F, G):
     """Compute the reduction coefficient k."""
-    # print(f"f: {f}")
-    # print(f"g: {g}")
-    # v =poly_mult_mod(f, g)
-    # print(f"f*g: {v}")
-    # print(f"mod f*g: {reduce_poly_mod(v)}")
-    
-    f_bar = unique_reverse(f)
-    g_bar = unique_reverse(g)
-    print(f"f_bar type: {type(f_bar)}")
-    print(f"F type: {type(F)}")
+    f_bar = unique_reverse(f).tolist()
+    g_bar = unique_reverse(g).tolist()
 
-    nume = reduce_poly_mod(poly_mult_mod(F, f_bar) + poly_mult_mod(G, g_bar))
-    print(f"nume: {nume}")
+    f = f.tolist()
+    g = g.tolist()
 
-    return 1
+    alpha = multiply_large_polynomials(F, f_bar)
+    bravo = multiply_large_polynomials(G, g_bar)
+    charlie = multiply_large_polynomials(f, f_bar)
+    delta = multiply_large_polynomials(g, g_bar)
 
-    # R = PolynomialRing(ZZ, 'x')
-    # x = R.gen()
+    nume = [a + b for a, b in zip(alpha, bravo)]
+    deno = [c + d for c, d in zip(charlie, delta)]
+    # print(f"nume: {nume}")
+    # print(f"deno: {deno}")
 
-    # phi = PolynomialRing(ZZ, 'x').gen()**N + 1  # cyclotomic polynomial
+    # Convert to Sage polynomials for division and GCD operations
+    # sage_nume = numpy_to_sage_poly(np.array(nume))
+    sage_deno = numpy_to_sage_poly(np.array(deno))
 
-    # # Convert numpy arrays to Sage polynomials
-    # f_poly = R(list(f[::-1]))
-    # g_poly = R(list(g[::-1]))
+    # Perform extended GCD to find gcd, inverse of deno mod phi
+    phi = Cyclo()
+    gcd, inv_deno, _ = xgcd(sage_deno, phi)
 
-    #  # Compute f_bar and g_bar
-    # f_coeffs = np.array(f)
-    # g_coeffs = np.array(g)
-    # f_bar_coeffs = unique_reverse(f_coeffs)
-    # g_bar_coeffs = unique_reverse(g_coeffs)
-    # f_bar_poly = R(list(f_bar_coeffs[::-1]))
-    # g_bar_poly = R(list(g_bar_coeffs[::-1]))
+    inv_deno = sage_to_numpy(inv_deno).tolist()
 
-    # # Compute numerator and denominator
-    # numerator = reduce_poly_mod(f_bar_poly * F + g_bar_poly * G)
-    # denominator = reduce_poly_mod(f_poly * f_bar_poly + g_poly * g_bar_poly)
+    # # print(f"sage_to_numpy(inv_deno): {sage_to_numpy(inv_deno)}")
+    k = multiply_large_polynomials(nume, inv_deno)
+    k = numpy_to_sage_poly(np.array(k))
+    k = k % phi // gcd
+    # print(f"k: {k}")
 
-    # # Compute the inverse of the denominator modulo phi
-    # a, iden, _ = xgcd(denominator, phi)
-    # k = reduce_poly_mod(numerator * iden)
+    # Ensure k has length N
+    k_coeffs = k.list()
+    if len(k_coeffs) < N:
+        k_coeffs += [0] * (N - len(k_coeffs))
+    k_coeffs = k_coeffs[:N]
 
-    # # Normalize and round the coefficients
-    # k_coeffs = np.array(k.list())
-    # k_coeffs = k_coeffs / int(a)
-    # k_coeffs_rounded = np.round(k_coeffs).astype(int)
+    # print(f"k_coeffs: {k_coeffs}")
 
-    # return R(list(k_coeffs_rounded[::-1]))
+    return k_coeffs
 
 def key_generation(N, q):
     sigma_f = 1.17 * np.sqrt(q / (2 * N))
@@ -324,28 +320,51 @@ def key_generation(N, q):
         # print(f"g: {g}")
         
         norm = gram_schmidt_norm(f, g)
-        print(f"norm: {norm}")
-        # pgcd, alpha, beta, rho_f, rho_g = pair_gcd(f, g)
-        # print(f"pgcd: {pgcd}")
-        valid, u, v, rho_f, rho_g = pair_gcd(f, g)
+        valid, u, v, sage_rho_f, sage_rho_g = pair_gcd(f, g)
 
         if norm <= 1.17 * np.sqrt(q) and valid:
+            print(f"norm: {norm}")
             print("norm and pgcd ok!")
             break
         i += 1
 
-    print(f"u: {u}")
-    print(f"v: {v}")
-    print(f"rho_g: {rho_g}")
+    # Convert sage ring polynomial to numpy.ndarray
+    rho_f = sage_to_numpy(sage_rho_f)
+    rho_g = sage_to_numpy(sage_rho_g)
 
-    F = -q * v * rho_g
-    G = q * u * rho_f
-    # print(f"F: {F}")
+    # print(f"q: {q}")
+    # print(f"v: {v}")
+    # print(f"rho_g: {rho_g}")
+
+    # F = (-q * v * np.array(rho_g, dtype=np.int64)).astype(np.int64)
+    F = [-q*v*num for num in rho_g]
+    G = [q*u*num for num in rho_f]
+    # print(f"q*v: {q*v}")
+    # print(f"q*v*rhog: {q*v*np.array(rho_g, dtype=np.int64)}")
+    print(f"F: {len(F)}")
     # print(f"G: {G}")
 
     k = compute_k(f, g, F, G)
+    while R(k).degree() >= 0:
+        f = f.tolist()
+        g = g.tolist()
 
+        F = [a-b for a, b in zip(F, multiply_large_polynomials(k, f))]
+        G = [a-b for a, b in zip(G, multiply_large_polynomials(k, g))]
 
+        f = np.array(f)
+        g = np.array(g)
+
+        k = compute_k(f, g, F, G)
+        # print(f"k: {k}")
+    
+    f = f.tolist()
+    g = g.tolist()
+
+    print(multiply_large_polynomials(f, G))
+    q_test = [a-b for a, b in zip(multiply_large_polynomials(f, G), multiply_large_polynomials(g, F))]
+    print(f"f*G - g*F: {q_test[0]}")
+    print(f"q: {q}")
 
     return f, g
 
