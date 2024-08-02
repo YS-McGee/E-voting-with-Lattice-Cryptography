@@ -2,6 +2,7 @@ import numpy as np
 from numpy.fft import fft, ifft
 from scipy.stats import norm as scipy_norm
 from sympy import symbols, ZZ, Poly
+import sys
 from sage.all import *
 
 # Constants
@@ -14,7 +15,7 @@ omega = np.exp(2j * np.pi / N)
 omega_1 = np.exp(-2j * np.pi / N)
 
 # For Poly
-x = symbols('x')
+# x = symbols('x')
 
 # for Sagemath
 R = PolynomialRing(ZZ, 'x')
@@ -181,7 +182,7 @@ def poly_mul_mod(a, b, mod_poly):
 
 def pair_gcd(f, g):
     """SAGE env. Compute the GCD of f and g with respect to the cyclotomic polynomial phi using extended GCD."""
-    print(f"f type: {type(f)}")
+    # print(f"f type: {type(f)}")
     sage_f = numpy_to_sage_poly(f)
     sage_g = numpy_to_sage_poly(g)
 
@@ -295,8 +296,9 @@ def compute_k(f, g, F, G):
     # # print(f"sage_to_numpy(inv_deno): {sage_to_numpy(inv_deno)}")
     k = multiply_large_polynomials(nume, inv_deno)
     k = numpy_to_sage_poly(np.array(k))
-    k = k % phi // gcd
-    # print(f"k: {k}")
+    # SageMath Opeartion
+    k = k // gcd
+    # print(f"k // gcd: {k}")
 
     # Ensure k has length N
     k_coeffs = k.list()
@@ -308,12 +310,50 @@ def compute_k(f, g, F, G):
 
     return k_coeffs
 
+def Inverse(f):
+    
+    # Convert f and phi to polynomials in R
+    f = R(f)
+    phi = Cyclo()
+    
+    # Compute the extended GCD of f and phi
+    gcd, rho_f, iphi = xgcd(f, phi)
+    inv_f = inverse_mod(gcd, q)
+
+    # print(f"gcd: {gcd}")
+    # print(f"inv_f: {inv_f}")
+    
+    # Return the inverse polynomial
+    return inv_f * rho_f
+
+def mpk_gen(f, g):
+    # Define the polynomial ring over the finite field GF(q)
+    R = PolynomialRing(GF(q), 'x')
+    x = R.gen()
+
+    print(f"f: {f}")
+    print(f"g: {g}")
+
+    f = R(f)
+    g = R(g)
+
+    f_inv = Inverse(f)
+    f_inv = sage_to_numpy(f_inv).tolist()
+    # print(f"f: {f}")
+    # print(f"g: {g}")
+    # print(f"R(g): {R(g)}")
+    print(f"f_inv: {f_inv}")
+    h = [a%q for a in multiply_large_polynomials(g, f_inv)]
+
+    print(f"h: {h}")
+    return h
+
 def key_generation(N, q):
     sigma_f = 1.17 * np.sqrt(q / (2 * N))
     
     i = 1
     while True:
-        print(f"i: {i}")
+        # print(f"i: {i}")
         f = sample_polynomial(N, sigma_f)
         g = sample_polynomial(N, sigma_f)
         # print(f"f: {f}")
@@ -323,8 +363,8 @@ def key_generation(N, q):
         valid, u, v, sage_rho_f, sage_rho_g = pair_gcd(f, g)
 
         if norm <= 1.17 * np.sqrt(q) and valid:
-            print(f"norm: {norm}")
-            print("norm and pgcd ok!")
+            # print(f"norm: {norm}")
+            print("norm and gcd ok!")
             break
         i += 1
 
@@ -336,13 +376,8 @@ def key_generation(N, q):
     # print(f"v: {v}")
     # print(f"rho_g: {rho_g}")
 
-    # F = (-q * v * np.array(rho_g, dtype=np.int64)).astype(np.int64)
     F = [-q*v*num for num in rho_g]
     G = [q*u*num for num in rho_f]
-    # print(f"q*v: {q*v}")
-    # print(f"q*v*rhog: {q*v*np.array(rho_g, dtype=np.int64)}")
-    print(f"F: {len(F)}")
-    # print(f"G: {G}")
 
     k = compute_k(f, g, F, G)
     while R(k).degree() >= 0:
@@ -361,13 +396,25 @@ def key_generation(N, q):
     f = f.tolist()
     g = g.tolist()
 
-    print(multiply_large_polynomials(f, G))
     q_test = [a-b for a, b in zip(multiply_large_polynomials(f, G), multiply_large_polynomials(g, F))]
-    print(f"f*G - g*F: {q_test[0]}")
-    print(f"q: {q}")
+    q_test = q_test[0]
+    if q == q_test:
+        print(f"KeyGen Successful! f*G - g*F = q = {q_test}")
+    else:
+        print("FAILED f*G - g*F != q")
+        sys.exit()
 
-    return f, g
+    MPK = mpk_gen(f, g)
+
+    print(f"MPK: {MPK}")
+    
+    return 1
 
 if __name__ == "__main__":
     # Generate key
-    f, g = key_generation(N, q)
+    valid = key_generation(N, q)
+
+
+    
+
+    
