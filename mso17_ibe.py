@@ -331,8 +331,8 @@ def mpk_gen(f, g):
     R = PolynomialRing(GF(q), 'x')
     x = R.gen()
 
-    print(f"f: {f}")
-    print(f"g: {g}")
+    # print(f"f: {f}")
+    # print(f"g: {g}")
 
     f = R(f)
     g = R(g)
@@ -342,11 +342,49 @@ def mpk_gen(f, g):
     # print(f"f: {f}")
     # print(f"g: {g}")
     # print(f"R(g): {R(g)}")
-    print(f"f_inv: {f_inv}")
+    # print(f"f_inv: {f_inv}")
     h = [a%q for a in multiply_large_polynomials(g, f_inv)]
 
-    print(f"h: {h}")
+    # print(f"h: {h}")
     return h
+
+def anticirculant_matrix(f):
+    N0 = len(f)
+    A = np.zeros((N0, N0), dtype=int)
+    
+    for i in range(N0):
+        # Fill in the first part directly from the list f
+        A[i, i:] = f[:N0-i]
+        # Fill in the second part with negative values adjusted for the wrap-around
+        A[i, :i] = -np.array(f[N0-i:])
+    
+    return A
+
+def b_matrix(f, g, F, G):
+    neg_f = [-x for x in f]
+    neg_F = [-x for x in F]
+
+    # print(f"f: {f}")
+    # print(f"g: {g}")
+    # print(f"neg_f: {neg_f}")
+    # print(f"neg_F: {neg_F}")
+
+    M = np.zeros((2 * N, 2 * N), dtype=int)
+
+    # Fill top-left submatrix with A(g)
+    M[:N, :N] = anticirculant_matrix(g)
+    
+    # Fill top-right submatrix with -A(f)
+    M[:N, N:] = anticirculant_matrix(neg_f)
+    
+    # Fill bottom-left submatrix with A(G)
+    M[N:, :N] = anticirculant_matrix(G)
+    
+    # Fill bottom-right submatrix with -A(F)
+    M[N:, N:] = anticirculant_matrix(neg_F)
+
+    # print(M)
+    return M
 
 def key_generation(N, q):
     sigma_f = 1.17 * np.sqrt(q / (2 * N))
@@ -398,21 +436,26 @@ def key_generation(N, q):
 
     q_test = [a-b for a, b in zip(multiply_large_polynomials(f, G), multiply_large_polynomials(g, F))]
     q_test = q_test[0]
-    if q == q_test:
-        print(f"KeyGen Successful! f*G - g*F = q = {q_test}")
-    else:
+    if q != q_test:
         print("FAILED f*G - g*F != q")
         sys.exit()
 
     MPK = mpk_gen(f, g)
+    # print(f"f: {f}")
+    # print(f"-f: {[-x for x in f]}")
+    MSK = b_matrix(f, g, F, G)
 
-    print(f"MPK: {MPK}")
+    # print(f"MPK: {MPK}")
     
-    return 1
+    return MPK, MSK
 
 if __name__ == "__main__":
     # Generate key
-    valid = key_generation(N, q)
+    MPK, MSK = key_generation(N, q)
+
+    print("================= MPK & MSK Generated =================")
+    # print(f"MPK: {MPK}")
+    # print(f"MSK: {MSK}")
 
 
     
