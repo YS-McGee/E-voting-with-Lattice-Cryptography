@@ -1,3 +1,4 @@
+from decimal import Decimal, getcontext
 import numpy as np
 from numpy.fft import fft, ifft
 from scipy.stats import norm as scipy_norm
@@ -5,14 +6,23 @@ from sympy import symbols, ZZ, Poly
 import sys
 from sage.all import *
 
-# Constants
-N = 512
+np.set_printoptions(suppress=True)
+
+""" Constants """
+# Set the precision to a high value to accommodate the given precision
+getcontext().prec = 100
+# Declare PiPrime with the given value
+# PiPrime = Decimal('0.39894228040143267793994605993438186847585863116493465766592582967065792589930183850125233390730693643030255886263518268551099195455583724299621273062')
+PiPrime = 0.39894228040143267793994605993438186847585863116493465766592582967065792589930183850125233390730693643030255886263518268551099195455583724299621273062
+N = 4
 q = 2**30
 sigma_1 = 0.84932180028801904272150283410288961971514109378435394286159953238339383120795466719298223538163406787061691601172910413284884326532697308797136114023
 LDRMX = 2**31 - 1
 log_2 = np.log(2)
 omega = np.exp(2j * np.pi / N)
 omega_1 = np.exp(-2j * np.pi / N)
+
+
 
 # For Poly
 # x = symbols('x')
@@ -449,14 +459,139 @@ def key_generation(N, q):
     
     return MPK, MSK
 
+def fast_mgs(B):
+    """
+    Perform the Fast Modified Gram-Schmidt (MGS) orthogonalization on matrix B.
+    """
+    B = np.array(B, dtype=float)
+    Bst = np.zeros_like(B)
+
+    # Initial setup
+    Bst[0, :] = B[0, :]
+    v = np.zeros(2 * N)
+    v[:N-1] = Bst[0, 1:N]
+    v[N-1] = -Bst[0, 0]
+    v[N:2*N-1] = Bst[0, N+1:2*N]
+    v[2*N-1] = -Bst[0, N]
+    v1 = v.copy()
+    C_k = np.dot(Bst[0], v)
+    D_k = np.dot(v, v)
+
+    # Orthogonalize first half
+    for k in range(1, N):
+        aux = C_k / D_k
+        Bst[k, 0] = -Bst[k-1, N-1] + aux * v[N-1]
+        Bst[k, N] = -Bst[k-1, 2*N-1] + aux * v[2*N-1]
+        for j in range(1, N):
+            Bst[k, j] = Bst[k-1, j-1] - aux * v[j-1]
+            Bst[k, j+N] = Bst[k-1, j+N-1] - aux * v[j+N-1]
+        v -= aux * Bst[k-1]
+        C_k = np.dot(Bst[k], v1)
+        D_k -= (C_k * C_k) / D_k
+
+    # Normalize and orthogonalize second half
+    D_k = np.dot(Bst[N-1], Bst[N-1])
+    for j in range(N):
+        Bst[N, N+j] = Bst[N-1, N-1-j] * q / D_k
+        Bst[N, j] = -Bst[N-1, 2*N-1-j] * q / D_k
+    v[:N-1] = Bst[N, 1:N]
+    v[N-1] = -Bst[N, 0]
+    v[N:2*N-1] = Bst[N, N+1:2*N]
+    v[2*N-1] = -Bst[N, N]
+    v1 = v.copy()
+    C_k = np.dot(Bst[N], v1)
+    D_k = np.dot(Bst[N], Bst[N])
+
+    for k in range(N + 1, 2 * N):
+        aux = C_k / D_k
+        Bst[k, 0] = -Bst[k-1, N-1] + aux * v[N-1]
+        Bst[k, N] = -Bst[k-1, 2*N-1] + aux * v[2*N-1]
+        for j in range(1, N):
+            Bst[k, j] = Bst[k-1, j-1] - aux * v[j-1]
+            Bst[k, j+N] = Bst[k-1, j+N-1] - aux * v[j+N-1]
+        v -= aux * Bst[k-1]
+        C_k = np.dot(Bst[k], v1)
+        D_k -= (C_k * C_k) / D_k
+
+    return Bst
+
+def gpv(c, MSKD):
+    # Beware to use copy(), otherwise it will affect c when using ci
+    ci = c.copy()
+
+    for i in range(2*N - 1, -1, -1):
+        aux = MSKD['GS_Norm'][i]
+        cip = np.dot(ci, MSKD['Bstar'][i]) / (aux**2)
+        sip = MSKD['Sigma'] / aux
+        zi = sample4(cip, sip*PiPrime)
+
+        for j in range(2 * N):
+            ci[j] -= zi * MSKD['B'][i][j]
+
+    sk = [0] * (2 * N)
+    for j in range(0, 2 * N):
+        print(c[j])
+        sk[j] = c[j] - ci[j]
+
+    return sk
+
+def extract_test(MSKD):
+    id = [np.random.randint(0, q - 1) for _ in range(N)]
+    # print(id)
+
+    # Initialize c with zeros
+    c = np.zeros(2 * N)
+
+    # Conversion and assignment
+    for i in range(N):
+        # c[i] = float(id[i])  # conv<double>(id[i]) in C++
+        c[i] = id[i]
+        c[i + N] = 0
+
+    # Print the result
+    # print("c:", c)
+
+    sk = gpv(c, MSKD)
+    print(sk)
+
+    return sk, c
+
+    
+
 if __name__ == "__main__":
     # Generate key
-    MPK, MSK = key_generation(N, q)
+    mpk, msk = key_generation(N, q)
 
     print("================= MPK & MSK Generated =================")
     # print(f"MPK: {MPK}")
     # print(f"MSK: {MSK}")
+    # print(msk)
 
+
+    bstar = fast_mgs(msk)
+    gs_norm = [0] * 2*N
+    for i in range(0, 2*N):
+        gs_norm[i] = np.linalg.norm(bstar[i, :])
+    sigma = 2 * gs_norm[0]
+    MSKD = {
+        'B': msk,
+        'Bstar':bstar,
+        'GS_Norm':gs_norm,
+        'Sigma':sigma
+    }
+    
+
+    # print(f"MSKD: {MSKD}")
+    sk, c = extract_test(MSKD)
+
+    sk[:N] = [c[i] - sk[i] for i in range(N)]
+    sk[N:] = [-sk[i + N] for i in range(N)]
+
+    # print(f"sk: {sk}")
+    SK_id = [[0] * N for _ in range(2)]  # Initialize SK_id as a 2D list with zeros
+    SK_id[0] = [sk[i] for i in range(N)]
+    SK_id[1] = [sk[i + N] for i in range(N)]
+    # print(f"SK_id: {SK_id}")
 
     
 
