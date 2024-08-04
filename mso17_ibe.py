@@ -14,7 +14,7 @@ getcontext().prec = 100
 # Declare PiPrime with the given value
 # PiPrime = Decimal('0.39894228040143267793994605993438186847585863116493465766592582967065792589930183850125233390730693643030255886263518268551099195455583724299621273062')
 PiPrime = 0.39894228040143267793994605993438186847585863116493465766592582967065792589930183850125233390730693643030255886263518268551099195455583724299621273062
-N = 4
+N = 256
 q = 2**30
 sigma_1 = 0.84932180028801904272150283410288961971514109378435394286159953238339383120795466719298223538163406787061691601172910413284884326532697308797136114023
 LDRMX = 2**31 - 1
@@ -450,14 +450,14 @@ def key_generation(N, q):
         print("FAILED f*G - g*F != q")
         sys.exit()
 
-    MPK = mpk_gen(f, g)
+    mpk = mpk_gen(f, g)
     # print(f"f: {f}")
     # print(f"-f: {[-x for x in f]}")
-    MSK = b_matrix(f, g, F, G)
+    msk = b_matrix(f, g, F, G)
 
     # print(f"MPK: {MPK}")
     
-    return MPK, MSK
+    return mpk, msk, f, g
 
 def fast_mgs(B):
     """
@@ -530,15 +530,11 @@ def gpv(c, MSKD):
 
     sk = [0] * (2 * N)
     for j in range(0, 2 * N):
-        print(c[j])
         sk[j] = c[j] - ci[j]
 
     return sk
 
-def extract_test(MSKD):
-    id = [np.random.randint(0, q - 1) for _ in range(N)]
-    # print(id)
-
+def ibe_extract(id, MSKD):
     # Initialize c with zeros
     c = np.zeros(2 * N)
 
@@ -552,15 +548,65 @@ def extract_test(MSKD):
     # print("c:", c)
 
     sk = gpv(c, MSKD)
-    print(sk)
 
-    return sk, c
+    sk[:N] = [c[i] - sk[i] for i in range(N)]
+    sk[N:] = [-sk[i + N] for i in range(N)]
+
+    # print(f"sk: {sk}")
+    SK_id = [[0] * N for _ in range(2)]  # Initialize SK_id as a 2D list with zeros
+    SK_id[0] = [sk[i] for i in range(N)]
+    SK_id[1] = [sk[i + N] for i in range(N)]
+    # print(f"SK_id: {SK_id}")
+
+    return SK_id
+
+def ibe_verify_key(SK_id, id, MSKD):
+    f = MSKD['Prk'][0]
+    g = MSKD['Prk'][1]
+
+    t = id.copy()
+
+    alpha = [SK_id[0][i] - t[i] for i in range(N)]
+    bravo = multiply_large_polynomials(alpha, f)
+    charlie = multiply_large_polynomials(g, SK_id[1])
+    delta = [(bravo[i] + charlie[i])%q for i in range(N)]
+    # print(f"delta: {delta}")
+    # delta[1] = 3
+
+    # Verify if it's a zero list
+    return all(x==0 for x in delta)
+
+def extract_test(id, MSKD):
+    SK_id = ibe_extract(id, MSKD)
+
+    if not ibe_verify_key(SK_id, id, MSKD):
+        print("[FAIL] --- Key Verification Failed")
+        sys.exit()
+    print("================= Key Extraction Test Successful! =================")
+
+def ibe_encrypt(mesage, id, mpk):
+    e1 = (np.random.randint(0, 3, N) - 1).tolist()
+    e2 = (np.random.randint(0, 3, N) - 1).tolist()
+    r = (np.random.randint(0, 3, N) - 1).tolist()
 
     
 
+def encrypt_test(mpk, MSKD):
+    id = [np.random.randint(0, q - 1) for _ in range(N)]
+
+    SK_id = ibe_extract(id, MSKD)
+    extract_test(id, MSKD)
+
+    message = np.random.randint(0, 2, N).tolist()
+    # print(f"message: {message}")
+
+    ibe_encrypt(message, id, mpk)
+
+
+
 if __name__ == "__main__":
     # Generate key
-    mpk, msk = key_generation(N, q)
+    mpk, msk, f, g = key_generation(N, q)
 
     print("================= MPK & MSK Generated =================")
     # print(f"MPK: {MPK}")
@@ -574,25 +620,15 @@ if __name__ == "__main__":
         gs_norm[i] = np.linalg.norm(bstar[i, :])
     sigma = 2 * gs_norm[0]
     MSKD = {
+        'Prk': [f, g],
         'B': msk,
         'Bstar':bstar,
         'GS_Norm':gs_norm,
         'Sigma':sigma
     }
-    
 
-    # print(f"MSKD: {MSKD}")
-    sk, c = extract_test(MSKD)
+    id = [np.random.randint(0, q - 1) for _ in range(N)]
+    extract_test(id, MSKD)
 
-    sk[:N] = [c[i] - sk[i] for i in range(N)]
-    sk[N:] = [-sk[i + N] for i in range(N)]
-
-    # print(f"sk: {sk}")
-    SK_id = [[0] * N for _ in range(2)]  # Initialize SK_id as a 2D list with zeros
-    SK_id[0] = [sk[i] for i in range(N)]
-    SK_id[1] = [sk[i + N] for i in range(N)]
-    # print(f"SK_id: {SK_id}")
-
-    
-
+    encrypt_test(mpk, MSKD)
     
