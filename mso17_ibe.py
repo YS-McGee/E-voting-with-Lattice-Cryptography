@@ -5,6 +5,8 @@ from scipy.stats import norm as scipy_norm
 from sympy import symbols, ZZ, Poly
 import sys
 from sage.all import *
+import gc
+
 
 np.set_printoptions(suppress=True)
 
@@ -14,15 +16,13 @@ getcontext().prec = 100
 # Declare PiPrime with the given value
 # PiPrime = Decimal('0.39894228040143267793994605993438186847585863116493465766592582967065792589930183850125233390730693643030255886263518268551099195455583724299621273062')
 PiPrime = 0.39894228040143267793994605993438186847585863116493465766592582967065792589930183850125233390730693643030255886263518268551099195455583724299621273062
-N = 256
+N = 512
 q = 2**30
 sigma_1 = 0.84932180028801904272150283410288961971514109378435394286159953238339383120795466719298223538163406787061691601172910413284884326532697308797136114023
 LDRMX = 2**31 - 1
 log_2 = np.log(2)
 omega = np.exp(2j * np.pi / N)
 omega_1 = np.exp(-2j * np.pi / N)
-
-
 
 # For Poly
 # x = symbols('x')
@@ -183,8 +183,26 @@ def sage_to_numpy(sage_poly):
     
     return numpy_array
 
+# def reduce_poly_mod(poly):
+#     reduced = [(poly[i] - sum(poly[j] for j in range(N, len(poly)) if j - i == N)) for i in range(N)]
+#     return reduced
+
 def reduce_poly_mod(poly):
-    return [(poly[i] - sum(poly[j] for j in range(N, len(poly)) if j - i == N)) for i in range(N)]
+    if not poly:
+        print("poly is empty")
+        return [0] * N
+
+    reduced = []
+    # print(f"poly")
+    for i in range(N):
+        reduction_sum = sum(poly[j] for j in range(N, len(poly)) if j - i == N)
+        # print(f"poly: {poly}")
+        # print(f"i: {i}")
+        # print(f"{poly[i]}")
+        reduced.append(poly[i] - reduction_sum)
+         
+    return reduced
+
 
 def poly_mul_mod(a, b, mod_poly):
     """Multiply two polynomials and reduce modulo another polynomial."""
@@ -272,6 +290,11 @@ def multiply_large_polynomials(poly1, poly2):
     
     # Convert the result back to a list of coefficients
     result_coeffs = P_result.coefficients(sparse=False)
+    # print(f"poly1: {poly1}")
+    # print(f"poly2: {poly2}")
+    # print(f"result_coeffs: {result_coeffs}")
+    # print(f"P_result: {P_result}")
+    # print(f"result_coeffs: {result_coeffs}")
     
     return reduce_poly_mod(result_coeffs)
 
@@ -329,9 +352,9 @@ def Inverse(f):
     # Compute the extended GCD of f and phi
     gcd, rho_f, iphi = xgcd(f, phi)
     inv_f = inverse_mod(gcd, q)
-
     # print(f"gcd: {gcd}")
     # print(f"inv_f: {inv_f}")
+    # print(f"rho_f: {rho_f}")
     
     # Return the inverse polynomial
     return inv_f * rho_f
@@ -344,11 +367,13 @@ def mpk_gen(f, g):
     # print(f"f: {f}")
     # print(f"g: {g}")
 
-    f = R(f)
-    g = R(g)
+    # f = R(f)
+    # g = R(g)
 
     f_inv = Inverse(f)
+    # print(f"f_inv: {f_inv}")
     f_inv = sage_to_numpy(f_inv).tolist()
+    # print(f"f_inv: {f_inv}")
     # print(f"f: {f}")
     # print(f"g: {g}")
     # print(f"R(g): {R(g)}")
@@ -396,17 +421,14 @@ def b_matrix(f, g, F, G):
     # print(M)
     return M
 
-def key_generation(N, q):
+def key_generation():
     sigma_f = 1.17 * np.sqrt(q / (2 * N))
     
-    i = 1
+    # i = 1
     while True:
         # print(f"i: {i}")
         f = sample_polynomial(N, sigma_f)
-        g = sample_polynomial(N, sigma_f)
-        # print(f"f: {f}")
-        # print(f"g: {g}")
-        
+        g = sample_polynomial(N, sigma_f)        
         norm = gram_schmidt_norm(f, g)
         valid, u, v, sage_rho_f, sage_rho_g = pair_gcd(f, g)
 
@@ -414,7 +436,7 @@ def key_generation(N, q):
             # print(f"norm: {norm}")
             print("norm and gcd ok!")
             break
-        i += 1
+        # i += 1
 
     # Convert sage ring polynomial to numpy.ndarray
     rho_f = sage_to_numpy(sage_rho_f)
@@ -426,7 +448,6 @@ def key_generation(N, q):
 
     F = [-q*v*num for num in rho_g]
     G = [q*u*num for num in rho_f]
-
     k = compute_k(f, g, F, G)
     while R(k).degree() >= 0:
         f = f.tolist()
@@ -570,6 +591,7 @@ def ibe_verify_key(SK_id, id, MSKD):
     bravo = multiply_large_polynomials(alpha, f)
     charlie = multiply_large_polynomials(g, SK_id[1])
     delta = [(bravo[i] + charlie[i])%q for i in range(N)]
+    # print(f"all(x==0 for x in delta): {all(x==0 for x in delta)}")
     # print(f"delta: {delta}")
     # delta[1] = 3
 
@@ -582,33 +604,99 @@ def extract_test(id, MSKD):
     if not ibe_verify_key(SK_id, id, MSKD):
         print("[FAIL] --- Key Verification Failed")
         sys.exit()
-    print("================= Key Extraction Test Successful! =================")
+    # print("================= Key Extraction Test Successful! =================")
 
-def ibe_encrypt(mesage, id, mpk):
+    return SK_id
+
+def ibe_encrypt(message, id, mpk):
     e1 = (np.random.randint(0, 3, N) - 1).tolist()
     e2 = (np.random.randint(0, 3, N) - 1).tolist()
-    r = (np.random.randint(0, 3, N) - 1).tolist()
+    romeo = (np.random.randint(0, 3, N) - 1).tolist()
 
+    product_1 = multiply_large_polynomials(romeo, mpk)
+    # print(f"romeo: {romeo}")
+    # print(f"mpk: {mpk}")
+    # print(f"product_1: {product_1}")
+    uniform = [((a + b+ (q // 2)))%q-(q//2) for a, b in zip(product_1, e1)]
+    # print(f"uniform: {uniform}")
+    product_2 = multiply_large_polynomials(romeo, id)
+    victor = [((a+b+(q//2)*c+(q//2))%q)-(q//2) for a, b, c in zip(product_2, e2, message)]
+
+    # uniform_2 = [(a+e)%q for a, e in zip(product_1, e1)]
+    # victor_2 = [(a+e+(q//2)*m)%q for a, e, m in zip(product_2, e2, message)]
+    # victor_2 = [2**20 * (x // 2**20) for x in victor_2]
+    # # print(f"uniform_2: {uniform_2}")
+    # # print(f"victor_2: {victor_2}")
+
+
+    # product_3 = multiply_large_polynomials(uniform_2, sk[1])
+    # whiskey = [(a-b)//(q//2) for a, b in zip(victor_2, product_3)]
+    # # print(f"whiskey: {whiskey}")
+
+    cipher = [uniform, victor]
     
+    return cipher
 
-def encrypt_test(mpk, MSKD):
+def ibe_decrypt(cipher, SK_id):
+    # print(f"SK_id[1]: {SK_id}")
+    message = multiply_large_polynomials(cipher[0], SK_id)
+
+    # print(f"message: {message}")
+
+    for i in range(N):
+        message[i] = (cipher[1][i] - message[i]) % q
+        message[i] = (message[i] + (q >> 2)) // (q >> 1)
+        # print(f"message[i]: {message[i]}")
+        message[i] %= 2
+    
+    return message
+
+def encrypt_test(j, mpk, MSKD):
     id = [np.random.randint(0, q - 1) for _ in range(N)]
 
     SK_id = ibe_extract(id, MSKD)
-    extract_test(id, MSKD)
+    # print(f"SK)id: {SK_id}")
+    # extract_test(id, MSKD)
 
     message = np.random.randint(0, 2, N).tolist()
     # print(f"message: {message}")
 
-    ibe_encrypt(message, id, mpk)
+    cipher = ibe_encrypt(message, id, mpk)
+    decrypted = ibe_decrypt(cipher, SK_id[1])
+
+    # print(f"cipher: {cipher}")
+    # print(f"decrypted: {decrypted}")
+    # print(f"j: {j}")
+    if message != decrypted:
+        print(f"---- Decryption Failed at j:{j} ----")
+        return False
+    else:
+        print(f"{j}: Encryption/Decryption Successful")
+        return True
+        # print(f"id: {id}")
+        # print(f"mpk: {mpk}")
+        # print(f"SK_id: {SK_id}")
+        # print(f"message: {message}")
+        # print(f"cipher: {cipher}")
+        # print(f"decrypted: {decrypted}")
+
+    # message = []
+    # cipher = []
+    # decrypted = []
+    # print(f"message: {message}")
+    # print(f"decrypted: {decrypted}")
+
+        # sys.exit()
+    # else:
+    #     print("SUCCESSFULLY")
 
 
 
 if __name__ == "__main__":
     # Generate key
-    mpk, msk, f, g = key_generation(N, q)
+    mpk, msk, f, g = key_generation()
 
-    print("================= MPK & MSK Generated =================")
+    # print("================= MPK & MSK Generated =================")
     # print(f"MPK: {MPK}")
     # print(f"MSK: {MSK}")
     # print(msk)
@@ -618,6 +706,7 @@ if __name__ == "__main__":
     gs_norm = [0] * 2*N
     for i in range(0, 2*N):
         gs_norm[i] = np.linalg.norm(bstar[i, :])
+    
     sigma = 2 * gs_norm[0]
     MSKD = {
         'Prk': [f, g],
@@ -626,9 +715,33 @@ if __name__ == "__main__":
         'GS_Norm':gs_norm,
         'Sigma':sigma
     }
+    # id = [np.random.randint(0, q - 1) for _ in range(N)]
+    # SK_id = extract_test(id, MSKD)
+    # message = np.random.randint(0, 2, N).tolist()
+    # cipher = ibe_encrypt(message, id, mpk)
+    # decrypted = ibe_decrypt(cipher, SK_id[1])
 
-    id = [np.random.randint(0, q - 1) for _ in range(N)]
-    extract_test(id, MSKD)
+    # if message != decrypted:
+    #     print(f"---- Decryption Failed ----")
 
-    encrypt_test(mpk, MSKD)
+    for j in range(0, 1):
+        # print(f"j: {j}")
+        id = [np.random.randint(0, q - 1) for _ in range(N)]
+        SK_id = extract_test(id, MSKD)
+        valid = encrypt_test(j, mpk, MSKD)
+
+        # if valid:
+        #     for i in range(0, 30):
+        #         message = np.random.randint(0, 2, N).tolist()
+        #         cipher = ibe_encrypt(message, id, mpk)
+        #         decrypted = ibe_decrypt(cipher, SK_id[1])
+
+        #         if message != decrypted:
+        #             print(f"---- Decryption Failed at i:{i} ----")
+        del SK_id, id
+        gc.collect()
+
+    del MSKD, mpk, f, g, bstar, gs_norm, sigma
+    gc.collect()
+
     
