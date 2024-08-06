@@ -1,8 +1,21 @@
 import sys
 import random
 import numpy as np
+# from sage.all import *
 
+# For passing variables to cpp
+import subprocess
+import json
+
+# Avoid printing scientific symbol, i.e. 2.869e+10
 np.set_printoptions(suppress=True)
+
+"""Commitment Constant Parameter"""
+Nv = 5          # number of voters
+N = 512         # Dimension of the lattice, change to 256 for real-life security
+q = 1048583     # q > 2**20, such that f has an inverse in the ring
+# q = 1073741827  # Large prime number for modulus as in Kyber (3389)
+
 
 # Shamir's Secret Sharing implementation
 def polynomial(coefs, x):
@@ -17,23 +30,28 @@ def generate_shares(secret, num_shares, threshold):
     if threshold > num_shares:
         raise ValueError("Threshold cannot be greater than the number of shares")
 
-    coefs = [secret] + [random.randint(0, 100) for _ in range(threshold - 1)]
+    # coefs = [secret] + [random.randint(0, 100) for _ in range(threshold - 1)]
+    coefs = [secret] + [np.random.randint(0, q+1) for _ in range(threshold - 1)]
     shares = [(i, polynomial(coefs, i)) for i in range(1, num_shares + 1)]
+    print(f"secret: {secret}")
+    print(f"coefs: {coefs}")
+    print(f"shares; {shares}")
     return shares
 
 # Lattice-based commitment scheme
-def lattice_commitment(share, randomness, C, n, q):
+def lattice_commitment(share, randomness, C):
     """Create a lattice-based commitment of the share and randomness."""
     # print(f"Share: {share}")
     # print(f"Randomness: {randomness}")
     # print(f"C: {C}")
-    share_vector = np.zeros((n+1, 1))
+    share_vector = np.zeros((N+1, 1))
     share_vector[-1][0] = share
+    # print(f"share_vector: {share_vector}")
     commitment = (np.dot(C, randomness) + share_vector) % q
-
+    # print(f"np.dot(C, randomness): {np.dot(C, randomness)}")
     return commitment
 
-def open_commitment(trustees, n, q):
+def open_commitment(trustees):
     """Open a lattice-based commitment to verify the share."""
     # opened = (np.dot(A, share) + randomness) % q
     # return np.array_equal(commitment, opened)
@@ -48,7 +66,8 @@ def voter(Nv, num_shares, threshold):
     voters = []
 
     for i in range(1, Nv + 1):
-        secret = random.randint(0, 1)
+        # secret = random.randint(0, 1)
+        secret = np.random.randint(0, 2)
         shares = generate_shares(secret, num_shares, threshold)
         
         voter_dict = {
@@ -60,18 +79,19 @@ def voter(Nv, num_shares, threshold):
 
     return voters
 
-def trustee(num_trustees, n, q):
+def trustee(num_trustees):
     trustees = [{'trustee_id': i, 'received_shares': [], 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None, 'opened_share': None} for i in range(1, num_trustees + 1)]
 
     # Key Generation
-    def keygen(n):
-        A_prime = np.random.randint(low=0, high=q, size=(n, n+1)) % q
+    def keygen(N):
+        # A_prime = random.randint(low=0, high=q, size=(N, N+1)) % q
+        A_prime = np.random.randint(low=0, high=q+1, size=(N, N+1)) % q
         #print(A_prime)
-        I_d = np.identity(n)
+        I_d = np.identity(N)
         #print(I_d)
         A = np.concatenate((A_prime, I_d), axis=1) % q
         #print(A)
-        B = np.random.randint(low=0, high=q, size=(1, 2*n+1)) % q
+        B = np.random.randint(low=0, high=q, size=(1, 2*N+1)) % q
         #print(B)
         C = np.concatenate((A, B), axis=0) % q                              # C's dimension is (n+1)X(2n+1)
         #print(C)
@@ -79,11 +99,11 @@ def trustee(num_trustees, n, q):
 
     # Insert secret matrix for each trustee
     for trustee in trustees:
-        trustee['C_matrix'] = keygen(n)
+        trustee['C_matrix'] = keygen(N)
 
     return trustees
 
-def commit_shares(trustees, A, n, q):
+def commit_shares(trustees, A):
     # print(f"\n[TRUSTEE] -- {trustees} \n")
     for trustee in trustees:
         # print(f"\n[TRUSTEE] -- {trustee}")
@@ -110,9 +130,10 @@ def commit_shares(trustees, A, n, q):
 
         for share in trustee['received_shares']:
             share_value = share['share_value']
-            randomness = np.random.randint(low=0, high=q, size=(2*n+1, 1))  # Randomness for commitment
+            # print(f"share_value: {share_value}")
+            randomness = np.random.randint(low=0, high=q, size=(2*N+1, 2*N+1))  # Randomness for commitment
             #print(f"randomness:\n {randomness}")
-            commitment = lattice_commitment(share_value, randomness, C, n, q)
+            commitment = lattice_commitment(share_value, randomness, C)
             # print(f"commitment: {commitment}")
             trustee['commitments'].append({
                 'voter_id': share['voter_id'],
@@ -127,7 +148,7 @@ def commit_shares(trustees, A, n, q):
         
         # print(f"\n[DEBUG] -- {trustee}")
 
-def sum_commitments(trustees, q):
+def sum_commitments(trustees):
     for trustee in trustees:
         sum_commitment = np.zeros_like(trustee['commitments'][0]['commitment'])
         for commitment in trustee['commitments']:
@@ -161,7 +182,8 @@ def distribute_shares(voters, trustees):
             })
 
 # Lagrange interpolation function to compute sum of votes
-def lagrange_interpolation(shares, x, q):
+def lagrange_interpolation(shares, x):
+    print(f"shares: {shares}")
     total = 0
     n = len(shares)
     for i in range(n):
@@ -177,10 +199,32 @@ def lagrange_interpolation(shares, x, q):
         total %= q
     return total
 
-def main():
-
-    Nv = 5          # number of voters
+# Using SageMath
+# def lagrange_interpolation(shares, x, q):
+#     total = 0
+#     n = len(shares)
+#     x = Integer(x)
+#     q = Integer(q)
     
+#     for i in range(n):
+#         xi, yi = Integer(shares[i][0]), Integer(shares[i][1])
+#         term = yi
+#         for j in range(n):
+#             if i != j:
+#                 xj, _ = Integer(shares[j][0]), Integer(shares[j][1])
+#                 # Compute the modular inverse using SageMath's .inverse_mod() method
+#                 try:
+#                     inv = (xi - xj).inverse_mod(q)
+#                     term *= (x - xj) * inv
+#                     term %= q
+#                 except ZeroDivisionError:
+#                     print(f"No modular inverse for {xi} - {xj} modulo {q}.")
+#                     return None
+#         total += term
+#         total %= q
+#     return total
+
+def main():
     try:
         if len(sys.argv) > 2:
             print(f"len(sys.argv) = {len(sys.argv)}")
@@ -211,38 +255,50 @@ def main():
     num_shares = threshold * 2 - 1
 
     num_trustees = num_shares                   # Number of trustees should be equal to num_shares
+    print(f"Number of Trustees: {num_trustees}")
 
     # Lattice parameters
-    n = 3                                       # Dimension of the lattice, change to 256 for real-life security
-    A = np.random.randint(0, 100, size=(n, 1))  # Generating a random matrix A with elements in [0, 100)
-    q = 3389                                    # Large prime number for modulus as in Kyber
+    A = np.random.randint(0, 100, size=(N, 1))  # Generating a random matrix A with elements in [0, 100)
 
     voters_list = voter(Nv, num_shares, threshold)
-    trustees_list = trustee(num_trustees, n, q)
+    trustees_list = trustee(num_trustees)
     # print(f"trustees_list {trustees_list}")
     
     distribute_shares(voters_list, trustees_list)
     # print(f"trustees_list {trustees_list}")
 
     # Trustees Main Operations
-    commit_shares(trustees_list, A, n, q)
+    commit_shares(trustees_list, A)
     #print(f"[DEBUG] -- {trustees_list}")
 
     # Each trsutee open the sum of shares
-    open_commitment(trustees_list, n, q)
+    open_commitment(trustees_list)
 
     # sum_commitments(trustees_list, q)
     # open_sum(trustees_list, A, q)
 
     for t in trustees_list:
-        print(f"[trsutees_list] -- {t}")
+        print(f"[trustees_list] -- {t['trustee_id']}, {t['received_shares']}")
 
     for v in voters_list:
         print(f"[voters_list] -- {v}")
+    # print(f"voters_list: {voters_list}")
 
     trustee_shares = [(t['trustee_id'], t['opened_share']) for t in trustees_list]
-    secret_sum = lagrange_interpolation(trustee_shares, 0, q)
+    shares = [(int(x), int(y)) for x, y in trustee_shares]
+    secret_sum = lagrange_interpolation(shares, 0)
     print("Reconstructed Secret Sum:", secret_sum)
+    # print(f"type trustees_list {type(trustees_list)}")
+    # print(f"type voters_list {type(voters_list)}")
+
+    # arg1 = "Hello"
+    # arg2 = 42
+    # subprocess.run(["./Lattice-IBE-master/IBE", arg1, str(arg2)])
+
+    # data = voters_list
+
+    data_str = json.dumps(voters_list)
+    subprocess.run(["./Lattice-IBE-master/IBE", data_str])
 
 if __name__ == "__main__":
     main()
