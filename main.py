@@ -10,8 +10,11 @@ import json
 # Avoid printing scientific symbol, i.e. 2.869e+10
 np.set_printoptions(suppress=True)
 
+"""Election Parameter"""
+N_cand = 3      # number of candidates
+
 """Commitment Constant Parameter"""
-Nv = 5          # number of voters
+Nv = 3          # number of voters
 N = 512         # Dimension of the lattice, change to 256 for real-life security
 q = 1048583     # q > 2**20, such that f has an inverse in the ring
 # q = 1073741827  # Large prime number for modulus as in Kyber (3389)
@@ -33,9 +36,9 @@ def generate_shares(secret, num_shares, threshold):
     # coefs = [secret] + [random.randint(0, 100) for _ in range(threshold - 1)]
     coefs = [secret] + [np.random.randint(0, q+1) for _ in range(threshold - 1)]
     shares = [(i, polynomial(coefs, i)) for i in range(1, num_shares + 1)]
-    print(f"secret: {secret}")
-    print(f"coefs: {coefs}")
-    print(f"shares; {shares}")
+    # print(f"secret: {secret}")
+    # print(f"coefs: {coefs}")
+    # print(f"shares; {shares}")
     return shares
 
 # Lattice-based commitment scheme
@@ -66,21 +69,37 @@ def voter(Nv, num_shares, threshold):
     voters = []
 
     for i in range(1, Nv + 1):
+        """Voters mark their vote (randomly in this case) on the ballot"""
         # secret = random.randint(0, 1)
         secret = np.random.randint(0, 2)
         shares = generate_shares(secret, num_shares, threshold)
-        
         voter_dict = {
             'voter_id': i,
             'secret_share': secret,
             'shares': shares
         }
+
+        ballot = [0] * N_cand
+        candidate_to_vote = np.random.randint(0, N_cand)
+        ballot[candidate_to_vote] = 1
+        voter_dict['ballot'] = ballot
+
+        for j in range(1, N_cand+1):
+            # print(f"ballot: {ballot[j-1]}")
+            candidate_index = f"candidate_{j}"
+            shares = generate_shares(ballot[j-1], num_shares, threshold)
+            voter_dict[candidate_index] = shares
+            # shares = generate_shares(secret, num_shares, threshold)
+            # candidate_index = f""
+
+        
+
         voters.append(voter_dict)
 
     return voters
 
 def trustee(num_trustees):
-    trustees = [{'trustee_id': i, 'received_shares': [], 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None, 'opened_share': None} for i in range(1, num_trustees + 1)]
+    trustees = [{'trustee_id': i, 'received_shares': [], 'test_shares': [], 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None, 'opened_share': None} for i in range(1, num_trustees + 1)]
 
     # Key Generation
     def keygen(N):
@@ -103,6 +122,7 @@ def trustee(num_trustees):
 
     return trustees
 
+"""Executed by Trustees"""
 def commit_shares(trustees, A):
     # print(f"\n[TRUSTEE] -- {trustees} \n")
     for trustee in trustees:
@@ -172,7 +192,7 @@ def sum_commitments(trustees):
 #     print(f"Total sum of commitments from trustees:\n {total_commitments_sum}")
 #     print(f"Total sum of actual votes: {total_sum_share}")
 
-def distribute_shares(voters, trustees):
+def construct_shares(voters, trustees):
     for voter in voters:
         for share in voter['shares']:
             share_id, share_value = share
@@ -180,6 +200,15 @@ def distribute_shares(voters, trustees):
                 'voter_id': voter['voter_id'],
                 'share_value': share_value
             })
+        for i in range(1, N_cand+1):
+            candidate_index = f"candidate_{i}"
+            # print(f"voter[candidate_index]: {voter[candidate_index]}")
+            for trustee_id, share in voter[candidate_index]:
+                # print(f"trustee_id: {trustee_id}, share: {share}")
+                trustees[trustee_id - 1]['test_shares'].append({
+                    candidate_index:share
+                })
+
 
 # Lagrange interpolation function to compute sum of votes
 def lagrange_interpolation(shares, x):
@@ -264,9 +293,19 @@ def main():
     trustees_list = trustee(num_trustees)
     # print(f"trustees_list {trustees_list}")
     
-    distribute_shares(voters_list, trustees_list)
+    """Distribute encrypted shares to Trustees"""
+    construct_shares(voters_list, trustees_list)
     # print(f"trustees_list {trustees_list}")
 
+    """Todo: IBE encrypt"""
+
+
+    #########################################################
+    ################## Trustees Operations ##################
+    #########################################################
+    """Todo: IBE decrypt"""
+
+    """After decrypting the shares"""
     # Trustees Main Operations
     commit_shares(trustees_list, A)
     #print(f"[DEBUG] -- {trustees_list}")
@@ -278,7 +317,8 @@ def main():
     # open_sum(trustees_list, A, q)
 
     for t in trustees_list:
-        print(f"[trustees_list] -- {t['trustee_id']}, {t['received_shares']}")
+        # print(f"[trustees_list] -- {t['trustee_id']}, {t['test_shares']}, {t['received_shares']}")
+        print(f"[trustees_list] -- {t['trustee_id']}, {t['test_shares']}")
 
     for v in voters_list:
         print(f"[voters_list] -- {v}")
@@ -297,8 +337,9 @@ def main():
 
     # data = voters_list
 
-    data_str = json.dumps(voters_list)
-    subprocess.run(["./Lattice-IBE-master/IBE", data_str])
+    """Distribute encrypted shares to Trustees"""
+    # data_str = json.dumps(voters_list)
+    # subprocess.run(["./Lattice-IBE-master/IBE", data_str])
 
 if __name__ == "__main__":
     main()
