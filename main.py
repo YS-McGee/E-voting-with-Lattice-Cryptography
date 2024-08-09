@@ -1,3 +1,7 @@
+"""
+Referendum Voting System
+"""
+
 import sys
 import random
 import numpy as np
@@ -11,13 +15,19 @@ import json
 np.set_printoptions(suppress=True)
 
 """Election Parameter"""
-N_cand = 3      # number of candidates
+N_cand = 2      # number of questions in the referendum
+Nv = 2          # number of voters
+threshold = 2                               # minimum number of available trustees
+num_shares = threshold * 2 - 1
+N_trustees = num_shares                   # Number of trustees should be equal to num_shares
+print(f"Number of Trustees: {N_trustees}")
+print(f"Number of Voters: {Nv}")
 
 """Commitment Constant Parameter"""
-Nv = 3          # number of voters
-N = 512         # Dimension of the lattice, change to 256 for real-life security
+N = 3         # Dimension of the lattice, change to 256 for real-life security
 q = 1048583     # q > 2**20, such that f has an inverse in the ring
-# q = 1073741827  # Large prime number for modulus as in Kyber (3389)
+# Lattice parameters
+A = np.random.randint(0, 100, size=(N, 1))  # Generating a random matrix A with elements in [0, 100)
 
 
 # Shamir's Secret Sharing implementation
@@ -79,27 +89,31 @@ def voter(Nv, num_shares, threshold):
             'shares': shares
         }
 
-        ballot = [0] * N_cand
-        candidate_to_vote = np.random.randint(0, N_cand)
-        ballot[candidate_to_vote] = 1
-        voter_dict['ballot'] = ballot
+        # ballot = [0] * N_cand
+        # candidate_to_vote = np.random.randint(0, N_cand)
+        # ballot[candidate_to_vote] = 1
+        # voter_dict['ballot'] = ballot
 
-        for j in range(1, N_cand+1):
-            # print(f"ballot: {ballot[j-1]}")
-            candidate_index = f"candidate_{j}"
-            shares = generate_shares(ballot[j-1], num_shares, threshold)
-            voter_dict[candidate_index] = shares
-            # shares = generate_shares(secret, num_shares, threshold)
-            # candidate_index = f""
-
-        
+        # for j in range(1, N_cand+1):
+        #     # print(f"ballot: {ballot[j-1]}")
+        #     candidate_index = f"cand_{j}"
+        #     shares = generate_shares(ballot[j-1], num_shares, threshold)
+        #     share_value_list = [share[1] for share in shares]
+        #     voter_dict[candidate_index] = shares
+        #     # voter_dict[candidate_index] = shares
+        #     # shares = generate_shares(secret, num_shares, threshold)
+        #     # candidate_index = f""
 
         voters.append(voter_dict)
 
     return voters
 
 def trustee(num_trustees):
-    trustees = [{'trustee_id': i, 'received_shares': [], 'test_shares': [], 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None, 'opened_share': None} for i in range(1, num_trustees + 1)]
+    trustees = [{'trustee_id': i, 'received_shares': [], 
+                 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None, 
+                 'enc_sum_commitments': None, 'enc_sum_randomness': None, 
+                 'dec_sum_commitments': None, 'dec_sum_randomness': None, 
+                 'opened_share': None} for i in range(1, num_trustees + 1)]
 
     # Key Generation
     def keygen(N):
@@ -119,11 +133,17 @@ def trustee(num_trustees):
     # Insert secret matrix for each trustee
     for trustee in trustees:
         trustee['C_matrix'] = keygen(N)
+    
+    candidate_index_list = []
+    for i in range(1, N_cand+1):
+        candidate_index = f"cand_{i}"
+        candidate_index_list.append(candidate_index)
+    # print(f"candidate_index_list: {candidate_index_list}")
 
     return trustees
 
-"""Executed by Trustees"""
-def commit_shares(trustees, A):
+"""Executed by Voters"""
+def commit_shares(trustees):
     # print(f"\n[TRUSTEE] -- {trustees} \n")
     for trustee in trustees:
         # print(f"\n[TRUSTEE] -- {trustee}")
@@ -168,6 +188,12 @@ def commit_shares(trustees, A):
         
         # print(f"\n[DEBUG] -- {trustee}")
 
+def ibe_enc(trustees):
+    for trustee in trustees:
+        print(f"[Trustee] ---- {trustee['trustee_id']}")
+        print(trustee['sum_commitments'])       # Dim: (N+1)*(2N+1)
+        print(trustee['sum_randomness'])        # Dim: (2N+1)*(2N+1)
+
 def sum_commitments(trustees):
     for trustee in trustees:
         sum_commitment = np.zeros_like(trustee['commitments'][0]['commitment'])
@@ -200,15 +226,14 @@ def construct_shares(voters, trustees):
                 'voter_id': voter['voter_id'],
                 'share_value': share_value
             })
-        for i in range(1, N_cand+1):
-            candidate_index = f"candidate_{i}"
-            # print(f"voter[candidate_index]: {voter[candidate_index]}")
-            for trustee_id, share in voter[candidate_index]:
-                # print(f"trustee_id: {trustee_id}, share: {share}")
-                trustees[trustee_id - 1]['test_shares'].append({
-                    candidate_index:share
-                })
-
+        # for i in range(1, N_cand+1):
+        #     candidate_index = f"cand_{i}"
+        #     # print(f"voter[candidate_index]: {voter[candidate_index]}")
+        #     for trustee_id, share in voter[candidate_index]:
+        #         print(f"trustee_id: {trustee_id}, share: {share}")
+        #         # trustees[trustee_id - 1]['test_shares'].append({
+        #         #     candidate_index:share
+        #         # })
 
 # Lagrange interpolation function to compute sum of votes
 def lagrange_interpolation(shares, x):
@@ -254,92 +279,108 @@ def lagrange_interpolation(shares, x):
 #     return total
 
 def main():
-    try:
-        if len(sys.argv) > 2:
-            print(f"len(sys.argv) = {len(sys.argv)}")
-            print("Invalid input. Please enter a valid integer.")
-            return False
-        elif len(sys.argv) == 2:
-            user_input = sys.argv[1]
-            try:
-                number = int(user_input)
-                if number < 1 or number > 10:
-                    print("Invalid input. Please enter a number between 1 and 10.")
-                    return
-                num_voters = int(input("Enter the number of voters: "))
+    # try:
+    #     if len(sys.argv) > 2:
+    #         print(f"len(sys.argv) = {len(sys.argv)}")
+    #         print("Invalid input. Please enter a valid integer.")
+    #         return False
+    #     elif len(sys.argv) == 2:
+    #         user_input = sys.argv[1]
+    #         try:
+    #             number = int(user_input)
+    #             if number < 1 or number > 10:
+    #                 print("Invalid input. Please enter a number between 1 and 10.")
+    #                 return
+    #             num_voters = int(input("Enter the number of voters: "))
 
-                ######################## Nv = int(input("Enter the number of voters: ")) ########################
+    #             ######################## Nv = int(input("Enter the number of voters: ")) ########################
 
-                print(f"Number of voters: {num_voters}")
-            except ValueError:
-                print("Invalid input. Please enter a valid integer.")
-                return
-        elif len(sys.argv) > 1:
-            pass                                # No input provided, just pass
-    except ValueError:
-        print("Invalid input. Please enter a valid integer.")
+    #             print(f"Number of voters: {num_voters}")
+    #         except ValueError:
+    #             print("Invalid input. Please enter a valid integer.")
+    #             return
+    #     elif len(sys.argv) > 1:
+    #         pass                                # No input provided, just pass
+    # except ValueError:
+    #     print("Invalid input. Please enter a valid integer.")
+
+    for question in range(1, N_cand+1):
+        print(f"\nReferendum Question {question}")
+        #########################################################
+        ################### Voters Operations ###################
+        #########################################################
+
+        voters_list = voter(Nv, num_shares, threshold)
+        trustees_list = trustee(N_trustees)
+        
+        # trustee_matrix = []
+        # for _ in range(N_trustees):
+        #     trustee_matrix.append([None]*Nv*N_cand)
+        # for row in trustee_matrix:
+        #     print(row)
+
+        construct_shares(voters_list, trustees_list)
+
+        """
+        Execute Commitment for each Trustee
+            > Calculate sum_commitments and sum_randomness
+        """
+        commit_shares(trustees_list)
+        for t in trustees_list:
+            print(f"[trustees_list] -- {t['trustee_id']}, {t['received_shares']}")
+       
+        # print(f"trustees_list {trustees_list}")
+
+        """Todo: IBE encrypt"""
+        print(f"trustees_list {trustees_list}")
+        ibe_enc(trustees_list)
+
+        """Distribute encrypted shares to Trustees"""
 
 
-    threshold = 2                               # minimum number of available trustees
-    num_shares = threshold * 2 - 1
+        #########################################################
+        ################## Trustees Operations ##################
+        #########################################################
+        """Todo: IBE decrypt"""
 
-    num_trustees = num_shares                   # Number of trustees should be equal to num_shares
-    print(f"Number of Trustees: {num_trustees}")
+        
+        ## After decrypting the shares
+        #print(f"[DEBUG] -- {trustees_list}")
 
-    # Lattice parameters
-    A = np.random.randint(0, 100, size=(N, 1))  # Generating a random matrix A with elements in [0, 100)
+        # Each trsutee open the sum of shares
+        open_commitment(trustees_list)
 
-    voters_list = voter(Nv, num_shares, threshold)
-    trustees_list = trustee(num_trustees)
-    # print(f"trustees_list {trustees_list}")
-    
-    """Distribute encrypted shares to Trustees"""
-    construct_shares(voters_list, trustees_list)
-    # print(f"trustees_list {trustees_list}")
+        # sum_commitments(trustees_list, q)
+        # open_sum(trustees_list, A, q)
 
-    """Todo: IBE encrypt"""
+        # for t in trustees_list:
+        #     print(f"[trustees_list] -- {t['trustee_id']}, {t['received_shares']}")
+        #     # print(f"[trustees_list] -- {t['trustee_id']}, {t['test_shares']}")
+        
+        # print("")
+        # for v in voters_list:
+        #     print(f"[voters_list] -- {v}")
+        
+        # print(f"voters_list: {voters_list}")
 
+        trustee_shares = [(t['trustee_id'], t['opened_share']) for t in trustees_list]
+        # print(f"trustee_shares: {trustee_shares}")
+        shares = [(int(x), int(y)) for x, y in trustee_shares]
+        secret_sum = lagrange_interpolation(shares, 0)
+        print(f"Sum of question {question}:", secret_sum)
+        # print(f"type trustees_list {type(trustees_list)}")
+        # print(f"type voters_list {type(voters_list)}")
 
-    #########################################################
-    ################## Trustees Operations ##################
-    #########################################################
-    """Todo: IBE decrypt"""
+        # arg1 = "voter"
+        # arg2 = 2446093
+        # subprocess.run(["./Lattice-IBE-master/IBE", arg1, str(arg2)])
 
-    """After decrypting the shares"""
-    # Trustees Main Operations
-    commit_shares(trustees_list, A)
-    #print(f"[DEBUG] -- {trustees_list}")
+        # data = voters_list
 
-    # Each trsutee open the sum of shares
-    open_commitment(trustees_list)
+        """Distribute encrypted shares to Trustees"""
+        # data_str = json.dumps(voters_list)
+        # subprocess.run(["./Lattice-IBE-master/IBE", data_str])
 
-    # sum_commitments(trustees_list, q)
-    # open_sum(trustees_list, A, q)
-
-    for t in trustees_list:
-        # print(f"[trustees_list] -- {t['trustee_id']}, {t['test_shares']}, {t['received_shares']}")
-        print(f"[trustees_list] -- {t['trustee_id']}, {t['test_shares']}")
-
-    for v in voters_list:
-        print(f"[voters_list] -- {v}")
-    # print(f"voters_list: {voters_list}")
-
-    trustee_shares = [(t['trustee_id'], t['opened_share']) for t in trustees_list]
-    shares = [(int(x), int(y)) for x, y in trustee_shares]
-    secret_sum = lagrange_interpolation(shares, 0)
-    print("Reconstructed Secret Sum:", secret_sum)
-    # print(f"type trustees_list {type(trustees_list)}")
-    # print(f"type voters_list {type(voters_list)}")
-
-    # arg1 = "Hello"
-    # arg2 = 42
-    # subprocess.run(["./Lattice-IBE-master/IBE", arg1, str(arg2)])
-
-    # data = voters_list
-
-    """Distribute encrypted shares to Trustees"""
-    # data_str = json.dumps(voters_list)
-    # subprocess.run(["./Lattice-IBE-master/IBE", data_str])
 
 if __name__ == "__main__":
     main()
