@@ -372,8 +372,8 @@ void Extract_Test(const unsigned int nb_extr, MSK_Data * MSKD)
 
 void Encrypt_Test(const unsigned int nb_voter, const unsigned int nb_shares, MPK_Data * MPKD, MSK_Data * MSKD)
 {
-    unsigned int i, j, k, y, rep;
-    vec_ZZ id;
+    unsigned int i, j, k, y, rep, c;
+    vec_ZZ id, id_v[nb_voter];
     ZZX SK_id[2], m, w;
     CC_t SKid_FFT[N0];
     long int id0[N0], Ciphertext[2][N0];
@@ -415,95 +415,90 @@ void Encrypt_Test(const unsigned int nb_voter, const unsigned int nb_shares, MPK
     }
 
     // Output the binary arrays
-    // for (const auto& binary_array : binary_arrays) {
-    //     std::cout << binary_array << std::endl;  // Print each binary array
-    // }
+    cout << "binary arrays: ";
+    for (const auto& binary_array : binary_arrays) {
+        std::cout << binary_array << std::endl;  // Print each binary array
+    }
 
     for(i=0; i<nb_voter; i++) {
-        id = RandomVector();
-        IBE_Extract(SK_id, id, MSKD);
-        IBE_Verify_Key(SK_id, id, MSKD);
-        ZZXToFFT(SKid_FFT, SK_id[1]);
+        id_v[i] = RandomVector();
+    }
+    // for(i=0; i<nb_voter; i++) {
+    //     cout << "voter id: " << i+1 << " ";
+    //     for (int p=0; p<N0; p++) {
+    //         cout << id_v[i][p] << ", ";
+    //     } cout << endl;
+    // }
+    rep = 0;
+    for(c=0; c<line_count;) {
+        // c=0;
+        for(i=0; i<nb_shares; i++) {
+            cout << "Trustee: " << i+1 << endl;
+            for(k=0; k<nb_voter; k++) {
+                // id = RandomVector();
+                id = id_v[k];                   // fetch the corresponding voter's id array.
+                IBE_Extract(SK_id, id, MSKD);
+                IBE_Verify_Key(SK_id, id, MSKD);
+                ZZXToFFT(SKid_FFT, SK_id[1]);
 
-        rep = 0;
+                for(y=0; y<N0; y++) {
+                    id0[y] = conv<long int>(id[y]);
+                    // cout << id[y] << ", ";
+                } //cout << endl;
 
-        for(y=0; y<N0; y++) {
-            id0[y] = conv<long int>(id[y]);
-        }
+                // for(j=0; j<N0; j++) {
+                //     message[j] = (rand()%2);
+                //     // cout << message[j];
+                // } cout << endl;
 
-        cout << "Voter: " << i << endl;
+                cout << binary_arrays[c].to_ulong() << endl;
+                cout << "c: " << c << " msg: ";
+                for(j=0; j<N0; j++) {
+                    cout << binary_arrays[c][j];
+                    message[j] = binary_arrays[c][j];
+                    // cout << message[j];
+                } cout << endl;
+                c++;
 
-        for(k=0; k<nb_shares; k++) {
-            cout << "share " << k << ": ";
+                // Convert message with binary shares
+                // int index = N0 - 1; // Start from the end of the array
+                // while (share > 0 && index >= 0) {
+                //     message_2[index] = share % 2;
+                //     share /= 2;
+                //     --index;
+                // }
 
-            // for(j=0; j<N0; j++) {
-            //     message[j] = (rand()%2);
-            //     cout << message[j];
-            // } cout << endl;
+                IBE_Encrypt(Ciphertext, message, id0, MPKD);
+                IBE_Decrypt(decrypted, Ciphertext, SKid_FFT);
 
-            for(j=0; j<N0; j++) {
-                message[j] = binary_arrays[0][j];
-                cout << message[j];
-            } cout << endl;
-
-            // Convert message with binary shares
-            // int index = N0 - 1; // Start from the end of the array
-            // while (share > 0 && index >= 0) {
-            //     message_2[index] = share % 2;
-            //     share /= 2;
-            //     --index;
-            // }
-
-            IBE_Encrypt(Ciphertext, message, id0, MPKD);
-            IBE_Decrypt(decrypted, Ciphertext, SKid_FFT);
-
-            // for(int k=0; k<2; k++) {
-            //     for(int g=0; g<N0; g++) {
-            //         cout << Ciphertext[k][g];
-            //     } cout << endl;
-            // }
-            
-            for(j=0; j<N0; j++)
-            {
-                if(message[j] != decrypted[j])
-                {
-                    cout << "ERROR : Dec(Enc(m)) != m " << endl;
-                    rep++;
-                    break;
+                // for(int k=0; k<2; k++) {
+                //     for(int g=0; g<N0; g++) {
+                //         cout << Ciphertext[k][g];
+                //     } cout << endl;
+                // }
+                cout << "dec: ";
+                for(j=0; j<N0; j++) {
+                    cout << decrypted[j];
+                } cout << endl;
+                
+                for(j=0; j<N0; j++) {
+                    if(message[j] != decrypted[j]) {
+                        cout << "ERROR : Dec(Enc(m)) != m " << endl;
+                        rep++;
+                        break;
+                    }
                 }
+                // if((i+1)%(nb_voter/10)==0) {
+                //     cout << "..." << (i+1)/(nb_voter/10) << "0%" << flush;
+                // }
+                cout << endl;
+                // if(rep == 0)
+                // {    cout << endl << nb_shares << " encryptions+decryptions successfully performed!" << endl << endl;    }
+                if(rep != 0)
+                {    cout << endl << rep << " out of " << nb_voter << " encryptions+decryptions failed miserabily!" << endl << endl;    }
             }
-            // cout << "message_2: " << endl;
-            // for(j=0; j<N0; j++)
-            // {
-            //     cout << message_2[j] << " ";
-            // }
-            // cout << endl;
-
-            // cout << "message: " << endl;
-            // for(j=0; j<N0; j++)
-            // {
-            //     cout << message[j] << " ";
-            // }
-            // cout << endl;
-            
-            // cout << "decrypted: " << endl;
-            // for(j=0; j<N0; j++)
-            // {
-            //     cout << decrypted[j] << " ";
-            // }
-            // cout << endl;
-
-            if((i+1)%(nb_voter/10)==0)
-            {
-                cout << "..." << (i+1)/(nb_voter/10) << "0%" << flush;
-            }
-            cout << endl;
-            if(rep == 0)
-            {    cout << endl << nb_shares << " encryptions+decryptions successfully performed!" << endl << endl;    }
-            else
-            {    cout << endl << rep << " out of " << nb_voter << " encryptions+decryptions failed miserabily!" << endl << endl;    }
-        }
-    }    
+        }  
+    }  
 }
 
 void TrusteeGen(const unsigned int nb_cryp, MPK_Data * MPKD, MSK_Data * MSKD) {
