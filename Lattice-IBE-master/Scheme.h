@@ -19,6 +19,8 @@ void IBE_Decrypt(long message[N0], const long C[2][N0], const CC_t * const SKid_
 void Extract_Bench(const unsigned int nb_extr, MSK_Data * MSKD);
 void Encrypt_Bench(const unsigned int nb_cryp, MPK_Data * MPKD, MSK_Data * MSKD);
 void Extract_Test(const unsigned int nb_extr, MSK_Data * MSKD);
-void Encrypt_Test(const unsigned int nb_cryp, MPK_Data * MPKD, MSK_Data * MSKD);
+void Encrypt_Test(const unsigned int nb_cryp, const unsigned int nb_shares, MPK_Data * MPKD, MSK_Data * MSKD);
+void TrusteeGen(const unsigned int nb_cryp, MPK_Data * MPKD, MSK_Data * MSKD);
+void VoterEncrypt(std::string msg);
 
 #endif

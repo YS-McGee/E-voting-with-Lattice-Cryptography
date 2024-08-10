@@ -52,6 +52,7 @@ knowledge of the CeCILL license and that you accept its terms.
 #include <NTL/mat_ZZ.h>
 #include <gmp.h>
 #include <chrono>
+#include <fstream>
 
 #include <iostream>
 #include <cstdlib>
@@ -94,7 +95,7 @@ void processJsonData(const std::string& data_str) {
     for (const auto& voter : root) {
         int voter_id = voter["voter_id"].asInt();
         int secret_share = voter["secret_share"].asInt();
-        std::vector<std::pair<int, int>> shares;
+        vector<pair<int, int>> shares;
 
         for (const auto& share : voter["shares"]) {
             int first = share[0].asInt();
@@ -103,41 +104,97 @@ void processJsonData(const std::string& data_str) {
         }
 
         // Process the data (example: print it)
-        std::cout << "Voter ID: " << voter_id << ", Secret Share: " << secret_share << std::endl;
-        std::cout << "Shares: ";
+        cout << "Voter ID: " << voter_id << ", Secret Share: " << secret_share << endl;
+        cout << "Shares: ";
         for (const auto& share : shares) {
-            std::cout << "(" << share.first << ", " << share.second << ") ";
+            cout << "(" << share.first << ", " << share.second << ") ";
         }
-        std::cout << std::endl;
+        cout << endl;
     }
 }
 
+// Function to save MPKD and MSKD to files
+void SaveKeys(const MPK_Data &MPKD, const MSK_Data &MSKD) {
+    //  unsigned int i;
+    
+    std::ofstream mpk_file("mpk_data.dat", std::ios::binary);
+    mpk_file << MPKD.MPK;
+    mpk_file.close();
+    cout << "mpk_data.dat saved" << endl;
+
+    std::ofstream msk_file("msk_data.dat", std::ios::binary);
+    for (int i = 0; i < 4; i++) {
+        msk_file << MSKD.MSK[i];
+    }
+    msk_file.close();
+    cout << "msk_data.dat saved" << endl;
+
+    // // Save SKid_FFT to a .dat file
+    // std::ofstream skFile("SKid_FFT_data.dat", std::ios::binary);
+    // if (skFile.is_open())
+    // {
+    //     skFile.write(reinterpret_cast<const char*>(SKid_FFT), sizeof(SKid_FFT));
+    //     skFile.close();
+    // }
+
+    // // Save id vector to a .dat file
+    // std::ofstream idFile("id_data.dat", std::ios::binary);
+    // if (idFile.is_open())
+    // {
+    //     for (i = 0; i < id.length(); i++)
+    //     {
+    //         long int temp = conv<long int>(id[i]); // Convert ZZ to long int
+    //         idFile.write(reinterpret_cast<const char*>(&temp), sizeof(temp));
+    //     }
+    //     idFile.close();
+    // }
+}
+
+// Function to load MPKD and MSKD from files
+// void LoadKeys(MPK_Data &MPKD, MSK_Data &MSKD) {
+//     std::ifstream mpk_file("mpk_data.dat", std::ios::binary);
+//     mpk_file >> MPKD.MPK;
+//     // Load other MPK_Data members if needed
+//     mpk_file.close();
+
+//     std::ifstream msk_file("msk_data.dat", std::ios::binary);
+//     for (int i = 0; i < 4; i++) {
+//         msk_file >> MSKD.MSK[i];
+//     }
+//     // Load other MSK_Data members if needed
+//     msk_file.close();
+// }
+
 int main(int argc, char* argv[])
 {
-    // if (argc != 3) {
-    //     std::cerr << "Usage: " << argv[0] << " <arg1> <arg2>" << std::endl;
+    string arg1;
+    int arg2;
+    // if (argc > 3) {
+    //     std::cerr << "Usage: " << argv[0] << " <arg1> <arg2>" << " argc=" << argc << endl;
     //     return 1;
+    // } else if (argc == 3)
+    // {
+    //     arg1 = argv[1];
+    //     arg2 = std::atoi(argv[2]);
+
+    //     cout << "argc: " << argc << endl;
+    //     cout << "Hello: " << arg1 << endl;
+    //     cout << "Argument 2: " << arg2 << endl;
     // }
     
-    // std::string arg1 = argv[1];
-    // int arg2 = std::atoi(argv[2]);
+    // if (argc != 2) {
+    //     std::cerr << "Usage: " << argv[0] << " <json_data>" << std::endl;
+    //     return 1;
+    // }
 
-    // std::cout << "Argument 1: " << arg1 << std::endl;
-    // std::cout << "Argument 2: " << arg2 << std::endl;
+    // std::string data_str = argv[1];
+    // processJsonData(data_str);
 
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <json_data>" << std::endl;
-        return 1;
-    }
-
-    std::string data_str = argv[1];
-    processJsonData(data_str);
-
-    cout << "\n=======================================================================\n";
-    cout << "This program is a proof-of concept for efficient IBE over lattices.\n";
-    cout << "It generates a NTRU lattice of dimension 2N and associated modulus q,\n";
-    cout << "and perform benches and tests, for user key extraction and encryption/decryption.";
-    cout << "\n=======================================================================\n\n";
+    // cout << "\n=======================================================================\n";
+    // cout << "This program is a proof-of concept for efficient IBE over lattices.\n";
+    // cout << "It generates a NTRU lattice of dimension 2N and associated modulus q,\n";
+    // cout << "and perform benches and tests, for user key extraction and encryption/decryption.";
+    // cout << "\n=======================================================================\n\n";
 
     ZZX MSK[4];
     ZZ_pX phiq, MPK;
@@ -152,64 +209,109 @@ int main(int argc, char* argv[])
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
     srand(seed);
 
-    cout << "N = " << N0 << endl;
-    cout << "q = " << q0 << endl;
+    if (argc == 1) {
+        cout << "N = " << N0 << endl;
+        cout << "q = " << q0 << endl;
 
-    ZZ_p::init(q1);
-    zz_p::init(q0);
+        ZZ_p::init(q1);
+        zz_p::init(q0);
 
-    phiq = conv<ZZ_pX>(phi);
-    ZZ_pXModulus PHI(phiq);
+        phiq = conv<ZZ_pX>(phi);
+        ZZ_pXModulus PHI(phiq);
 
 
-    cout << "\n===================================================================\n KEY GENERATION";
-    cout << "\n===================================================================\n";
-    t1 = clock();
-    for(i=0; i<1; i++)
-    {
+        cout << "\n===================================================================\n KEY GENERATION";
+        cout << "\n===================================================================\n";
+        t1 = clock();
+        for(i=0; i<1; i++)
+        {
+            Keygen(MPK, MSK);
+        }
+
+        CompleteMSK(MSKD, MSK);
+        CompleteMPK(MPKD, MPK);
+
+        std::ofstream mpk_file("mpk_data.dat", std::ios::binary);
+        // mpk_file << MPKD->MPK;
+        mpk_file << MPKD;
+        mpk_file.close();
+        // cout << "mpk_data.dat saved" << endl;
+
+        std::ofstream msk_file("msk_data.dat", std::ios::binary);
+        // for (int i = 0; i < 4; i++) {
+        //     msk_file << MSKD->MSK[i];
+        // }
+        msk_file << MSKD;
+        msk_file.close();
+
+        t2 = clock();
+        diff = ((float)t2 - (float)t1)/1000000.0F;
+        cout << "It took " << diff << " seconds to generate the Master Secret Key" << endl;
+
+
+
+        //==============================================================================
+        //Key extraction bench and encryption/decryption bench
+        //==============================================================================
+        // const unsigned int nb_extrb = 100;
+        // const unsigned int nb_crypb = 1000;
+
+        // cout << "\n===================================================================\n RUNNING EXTRACTION BENCH FOR ";
+        // cout << nb_extrb << " DIFFERENT IDENTITIES\n===================================================================\n";
+        // Extract_Bench(nb_extrb, MSKD);
+
+        // cout << "\n===================================================================\n RUNNING ENCRYPTION BENCH FOR ";
+        // cout << nb_crypb << " DIFFERENT MESSAGES\n===================================================================\n";
+        // Encrypt_Bench(nb_crypb, MPKD, MSKD);
+
+
+
+        ///==============================================================================
+        //Key extraction test and encryption/decryption test
+        //==============================================================================
+        const unsigned int nb_extrt = 100;
+        const unsigned int nb_voter = 2;
+        const unsigned int nb_shares = 3;
+
+        // cout << "\n===================================================================\n CHECKING EXTRACTION VALIDITY FOR ";
+        // cout << nb_extrt << " DIFFERENT IDENTITIES\n===================================================================\n";
+        // Extract_Test(nb_extrt, MSKD);
+
+        cout << "\n===================================================================\n CHECKING ENCRYPTION VALIDITY FOR ";
+        cout << nb_extrt << " DIFFERENT MESSAGES\n===================================================================\n";
+        Encrypt_Test(nb_voter, nb_shares, MPKD, MSKD);
+
+        free(MSKD);
+        free(MPKD);
+        return 0;
+    } else if (argc == 3 && std::string(argv[1]) == "gen") {
+        cout << "Hello Trustee/Authority" << endl; 
+        // Key generation and saving
+        // ZZX MSK[4];
+        // ZZ_pX MPK;
+        vec_ZZ id;
+        ZZX SK_id[2];
+        CC_t SKid_FFT[N0];
+
         Keygen(MPK, MSK);
+        CompleteMSK(MSKD, MSK);
+        CompleteMPK(MPKD, MPK);
+        
+        TrusteeGen(1, MPKD, MSKD);
+
+        free(MSKD);
+        free(MPKD);
+        return 0;
+    } else if (std::string(argv[1]) == "enc") {
+        cout << "Hello voter" << endl;
+        MPK_Data *MPKD = nullptr;
+        MSK_Data *MSKD = nullptr;
+
+        VoterEncrypt(argv[2]);
+
+        free(MSKD);
+        free(MPKD);
+        return 0;
     }
 
-    CompleteMSK(MSKD, MSK);
-    CompleteMPK(MPKD, MPK);
-
-    t2 = clock();
-    diff = ((float)t2 - (float)t1)/1000000.0F;
-    cout << "It took " << diff << " seconds to generate the Master Secret Key" << endl;
-
-
-
-    //==============================================================================
-    //Key extraction bench and encryption/decryption bench
-    //==============================================================================
-    const unsigned int nb_extrb = 100;
-    const unsigned int nb_crypb = 1000;
-
-    cout << "\n===================================================================\n RUNNING EXTRACTION BENCH FOR ";
-    cout << nb_extrb << " DIFFERENT IDENTITIES\n===================================================================\n";
-    Extract_Bench(nb_extrb, MSKD);
-
-    cout << "\n===================================================================\n RUNNING ENCRYPTION BENCH FOR ";
-    cout << nb_crypb << " DIFFERENT MESSAGES\n===================================================================\n";
-    Encrypt_Bench(nb_crypb, MPKD, MSKD);
-
-
-
-    ///==============================================================================
-    //Key extraction test and encryption/decryption test
-    //==============================================================================
-    const unsigned int nb_extrt = 100;
-    const unsigned int nb_crypt = 100;
-
-    cout << "\n===================================================================\n CHECKING EXTRACTION VALIDITY FOR ";
-    cout << nb_extrt << " DIFFERENT IDENTITIES\n===================================================================\n";
-    Extract_Test(nb_extrt, MSKD);
-
-    cout << "\n===================================================================\n CHECKING ENCRYPTION VALIDITY FOR ";
-    cout << nb_extrt << " DIFFERENT MESSAGES\n===================================================================\n";
-    Encrypt_Test(nb_crypt, MPKD, MSKD);
-
-    free(MSKD);
-    free(MPKD);
-    return 0;
 }
