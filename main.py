@@ -1,7 +1,7 @@
 """
 Referendum Voting System
 """
-
+import time
 import sys
 import random
 import numpy as np
@@ -15,7 +15,7 @@ import json
 np.set_printoptions(suppress=True)
 
 """Election Parameter"""
-N_cand = 2      # number of questions in the referendum
+N_cand = 1      # number of questions in the referendum
 Nv = 2          # number of voters
 threshold = 2                               # minimum number of available trustees
 num_shares = threshold * 2 - 1
@@ -24,7 +24,7 @@ print(f"Number of Trustees: {N_trustees}")
 print(f"Number of Voters: {Nv}")
 
 """Commitment Constant Parameter"""
-N = 3         # Dimension of the lattice, change to 256 for real-life security
+N = 8         # Dimension of the lattice, change to 256 for real-life security
 q = 1048583     # q > 2**20, such that f has an inverse in the ring
 # Lattice parameters
 A = np.random.randint(0, 100, size=(N, 1))  # Generating a random matrix A with elements in [0, 100)
@@ -86,7 +86,8 @@ def voter(Nv, num_shares, threshold):
         voter_dict = {
             'voter_id': i,
             'secret_share': secret,
-            'shares': shares
+            'shares': shares,
+            'enc_shares': [s[1] for s in shares]
         }
 
         # ballot = [0] * N_cand
@@ -110,9 +111,8 @@ def voter(Nv, num_shares, threshold):
 
 def trustee(num_trustees):
     trustees = [{'trustee_id': i, 'received_shares': [], 
-                 'C_matrix': None, 'commitments': [], 'sum_commitments': None, 'sum_randomness': None, 
-                 'enc_sum_commitments': None, 'enc_sum_randomness': None, 
-                 'dec_sum_commitments': None, 'dec_sum_randomness': None, 
+                 'C_matrix': None, 'commitments': [], 
+                 'sum_commitments': None, 'sum_randomness': None,  
                  'opened_share': None} for i in range(1, num_trustees + 1)]
 
     # Key Generation
@@ -134,10 +134,10 @@ def trustee(num_trustees):
     for trustee in trustees:
         trustee['C_matrix'] = keygen(N)
     
-    candidate_index_list = []
-    for i in range(1, N_cand+1):
-        candidate_index = f"cand_{i}"
-        candidate_index_list.append(candidate_index)
+    # candidate_index_list = []
+    # for i in range(1, N_cand+1):
+    #     candidate_index = f"cand_{i}"
+    #     candidate_index_list.append(candidate_index)
     # print(f"candidate_index_list: {candidate_index_list}")
 
     return trustees
@@ -145,6 +145,12 @@ def trustee(num_trustees):
 """Executed by Voters"""
 def commit_shares(trustees):
     # print(f"\n[TRUSTEE] -- {trustees} \n")
+    # Clear the content of the file by opening it in write mode
+    with open("commitment.txt", "w"):
+        pass  # Just opening and closing the file will clear its contents
+    with open("randomness.txt", "w"):
+        pass  # Just opening and closing the file will clear its contents
+
     for trustee in trustees:
         # print(f"\n[TRUSTEE] -- {trustee}")
         # sum_commitment = np.zeros(A.shape[0])
@@ -171,14 +177,26 @@ def commit_shares(trustees):
         for share in trustee['received_shares']:
             share_value = share['share_value']
             # print(f"share_value: {share_value}")
-            randomness = np.random.randint(low=0, high=q, size=(2*N+1, 2*N+1))  # Randomness for commitment
+            randomness = np.random.randint(low=0, high=q, size=(2*N+1, 1))  # Randomness for commitment
             #print(f"randomness:\n {randomness}")
             commitment = lattice_commitment(share_value, randomness, C)
             # print(f"commitment: {commitment}")
+
+            # Write the commitment to a file
+            with open("commitment.txt", "a") as f:
+                for row in commitment:
+                    f.write(" ".join(map(str, row)) + "\n")
+            # Write the randomness to a file
+            with open("randomness.txt", "a") as f:
+                for row in randomness:
+                    f.write(" ".join(map(str, row)) + "\n")
+
             trustee['commitments'].append({
                 'voter_id': share['voter_id'],
                 'commitment': commitment,
-                'randomness': randomness
+                'randomness': randomness,
+                'enc_com': None,
+                'enc_rand': None
             })
             test_sum_commitment = (test_sum_commitment + commitment) % q
             test_sum_randomness = (test_sum_randomness + randomness) % q
@@ -190,9 +208,19 @@ def commit_shares(trustees):
 
 def ibe_enc(trustees):
     for trustee in trustees:
+        # subprocess.run(["./Lattice-IBE-master/IBE", "gen", "0"])
+        # time.sleep(1)  # Wait for 1 second to ensure the file writing is completed
         print(f"[Trustee] ---- {trustee['trustee_id']}")
         print(trustee['sum_commitments'])       # Dim: (N+1)*(2N+1)
-        print(trustee['sum_randomness'])        # Dim: (2N+1)*(2N+1)
+        # print(trustee['sum_randomness'])        # Dim: (2N+1)*(2N+1)
+
+        # for i in range(len(trustee['sum_commitments'])):
+        #     for j in range(len(trustee['sum_commitments'][i])):
+        #         binary_string = f"{int(trustee['sum_commitments'][i][j]):32b}"
+        #         # print(f"{int(trustee['sum_commitments'][i][j]):25b}", end=' ')
+        #         subprocess.run(["./Lattice-IBE-master/IBE", "enc", binary_string])
+
+
 
 def sum_commitments(trustees):
     for trustee in trustees:
@@ -237,6 +265,10 @@ def construct_shares(voters, trustees):
 
 # Lagrange interpolation function to compute sum of votes
 def lagrange_interpolation(shares, x):
+
+    # Only use minimum number of shares to construct the threshold secret sharing
+    shares = shares[:(threshold-N_trustees)]
+
     print(f"shares: {shares}")
     total = 0
     n = len(shares)
@@ -312,6 +344,8 @@ def main():
 
         voters_list = voter(Nv, num_shares, threshold)
         trustees_list = trustee(N_trustees)
+        for v in voters_list:
+            print(v)
         
         # trustee_matrix = []
         # for _ in range(N_trustees):
@@ -320,6 +354,10 @@ def main():
         #     print(row)
 
         construct_shares(voters_list, trustees_list)
+        # print()
+        # for t in trustees_list:
+        #     # print(f"[TRUSTEE] -- {t['trustee_id']}, {t['received_shares']}")
+        #     print(t)
 
         """
         Execute Commitment for each Trustee
@@ -327,13 +365,20 @@ def main():
         """
         commit_shares(trustees_list)
         for t in trustees_list:
-            print(f"[trustees_list] -- {t['trustee_id']}, {t['received_shares']}")
+            print(t)
+            print()
+        # for t in trustees_list:
+        #     print(f"[trustees_list] -- {t['trustee_id']}")
+        #     print(f"[sum_commitments] -- {t['sum_commitments']}")
+        #     print(f"[sum_randomness] -- {t['sum_randomness']}")
        
         # print(f"trustees_list {trustees_list}")
 
         """Todo: IBE encrypt"""
-        print(f"trustees_list {trustees_list}")
-        ibe_enc(trustees_list)
+        # print(f"trustees_list {trustees_list}")
+        # for _ in trustees_list:
+        #     subprocess.run(["./Lattice-IBE-master/IBE", "gen", "0"])
+        # ibe_enc(trustees_list)
 
         """Distribute encrypted shares to Trustees"""
 
@@ -366,6 +411,7 @@ def main():
         trustee_shares = [(t['trustee_id'], t['opened_share']) for t in trustees_list]
         # print(f"trustee_shares: {trustee_shares}")
         shares = [(int(x), int(y)) for x, y in trustee_shares]
+
         secret_sum = lagrange_interpolation(shares, 0)
         print(f"Sum of question {question}:", secret_sum)
         # print(f"type trustees_list {type(trustees_list)}")
