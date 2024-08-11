@@ -165,6 +165,18 @@ void SaveKeys(const MPK_Data &MPKD, const MSK_Data &MSKD) {
 //     msk_file.close();
 // }
 
+void saveMSKDataToFile(const MSK_Data* data, const string& filename) {
+    ofstream outfile(filename, ios::binary);
+    outfile.write(reinterpret_cast<const char*>(data), sizeof(MSK_Data));
+    outfile.close();
+}
+
+void loadMSKDataFromFile(MSK_Data* data, const string& filename) {
+    ifstream infile(filename, ios::binary);
+    infile.read(reinterpret_cast<char*>(data), sizeof(MSK_Data));
+    infile.close();
+}
+
 int main(int argc, char* argv[])
 {
     string arg1;
@@ -209,6 +221,7 @@ int main(int argc, char* argv[])
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
     srand(seed);
 
+    // if no sys input, do encryption
     if (argc == 1) {
         cout << "N = " << N0 << endl;
         cout << "q = " << q0 << endl;
@@ -231,24 +244,25 @@ int main(int argc, char* argv[])
         CompleteMSK(MSKD, MSK);
         CompleteMPK(MPKD, MPK);
 
-        std::ofstream mpk_file("mpk_data.dat", std::ios::binary);
+        t2 = clock();
+        diff = ((float)t2 - (float)t1)/1000000.0F;
+        cout << "It took " << diff << " seconds to generate the Master Secret Key" << endl;
+
+        std::ofstream mpk_file("../trustee_cred/mpk_data.dat", std::ios::binary);
         // mpk_file << MPKD->MPK;
         mpk_file << MPKD;
         mpk_file.close();
         // cout << "mpk_data.dat saved" << endl;
 
-        std::ofstream msk_file("msk_data.dat", std::ios::binary);
-        // for (int i = 0; i < 4; i++) {
-        //     msk_file << MSKD->MSK[i];
-        // }
-        msk_file << MSKD;
-        msk_file.close();
+        // std::ofstream msk_file("../trustee_cred/msk_data.dat", std::ios::binary);
+        // // for (int i = 0; i < 4; i++) {
+        // //     msk_file << MSKD->MSK[i];
+        // // }
+        // msk_file << MSKD;
+        // msk_file.close();
 
-        t2 = clock();
-        diff = ((float)t2 - (float)t1)/1000000.0F;
-        cout << "It took " << diff << " seconds to generate the Master Secret Key" << endl;
-
-
+        saveMSKDataToFile(MSKD, "../trustee_cred/msk_data.dat");
+        cout << "msk_data.dat saved" << endl;
 
         //==============================================================================
         //Key extraction bench and encryption/decryption bench
@@ -271,7 +285,7 @@ int main(int argc, char* argv[])
         //==============================================================================
         const unsigned int nb_extrt = 100;
         const unsigned int nb_voter = 2;
-        const unsigned int nb_shares = 3;
+        const unsigned int nb_shares = 3; // nb of trustees
 
         // cout << "\n===================================================================\n CHECKING EXTRACTION VALIDITY FOR ";
         // cout << nb_extrt << " DIFFERENT IDENTITIES\n===================================================================\n";
@@ -284,7 +298,32 @@ int main(int argc, char* argv[])
         free(MSKD);
         free(MPKD);
         return 0;
-    } else if (argc == 3 && std::string(argv[1]) == "gen") {
+    } else if (argc == 2 && string(argv[1]) == "dec") {
+        // decrypt commitment cipher
+        unsigned ci, cn0, cj;
+        long int id0[N0], Ciphertext[2][N0];
+        long int message[N0], decrypted[N0];
+
+        loadMSKDataFromFile(MSKD, "../trustee_cred/msk_data.dat");
+        // cout << "MSKD:" << endl;
+        // cout << MSKD->sigma << endl; 
+        
+        ifstream infile("../trustee_cred/cipher_comm.dat", ios::binary);  // Open file in binary mode
+        for (ci = 0; ci < 2; ci++) {
+            infile.read(reinterpret_cast<char*>(Ciphertext[ci]), N0 * sizeof(long int));
+        }
+        infile.close();
+
+        // Check if cipher_comm.dat is retrived correctly.
+        // cout << "Cipher_comm:" << endl;
+        // for (ci = 0; ci < 2; ci++) {
+        //     for(cj=0; cj< N0; cj++) {
+        //         cout << Ciphertext[ci][cj] << " ";
+        //     } cout << endl;
+        // }
+
+    }
+    else if (argc == 3 && string(argv[1]) == "gen") {
         cout << "Hello Trustee/Authority" << endl; 
         // Key generation and saving
         // ZZX MSK[4];

@@ -372,7 +372,7 @@ void Extract_Test(const unsigned int nb_extr, MSK_Data * MSKD)
 
 void Encrypt_Test(const unsigned int nb_voter, const unsigned int nb_shares, MPK_Data * MPKD, MSK_Data * MSKD)
 {
-    unsigned int i, j, k, y, rep, c;
+    unsigned int i, ci, j, k, y, rep, c, p;
     vec_ZZ id, id_v[nb_voter];
     ZZX SK_id[2], m, w;
     CC_t SKid_FFT[N0];
@@ -421,8 +421,33 @@ void Encrypt_Test(const unsigned int nb_voter, const unsigned int nb_shares, MPK
     }
 
     for(i=0; i<nb_voter; i++) {
-        id_v[i] = RandomVector();
+        id = RandomVector();
+        for(p=0; p<N0; p++) {
+            id[p] = to_ZZ(id[p] + i);
+        }
+        id_v[i] = id;
     }
+    
+    // ofstream outfile("../trustee_cred/id_vector.dat", ios::binary);  // Open file in binary mode
+    ofstream outfile("../trustee_cred/id_vector.dat", ios::binary);  // Open file in binary mode
+    outfile.write(reinterpret_cast<const char*>(&nb_voter), sizeof(nb_voter));  // Write the number of vectors
+
+    for (long j = 0; j < nb_voter; ++j) {
+        long size = id_v[j].length();
+        outfile.write(reinterpret_cast<const char*>(&size), sizeof(size));  // Write the size of the vector
+
+        for (long i = 0; i < size; ++i) {
+            stringstream ss;
+            ss << id_v[j][i];  // Convert ZZ to string
+            string str = ss.str();
+            long str_size = str.size();
+            outfile.write(reinterpret_cast<const char*>(&str_size), sizeof(str_size));  // Write the length of the string
+            outfile.write(str.c_str(), str_size);  // Write the string data
+        }
+    }
+    
+    outfile.close();
+
     // for(i=0; i<nb_voter; i++) {
     //     cout << "voter id: " << i+1 << " ";
     //     for (int p=0; p<N0; p++) {
@@ -452,7 +477,7 @@ void Encrypt_Test(const unsigned int nb_voter, const unsigned int nb_shares, MPK
                 // } cout << endl;
 
                 cout << binary_arrays[c].to_ulong() << endl;
-                cout << "c: " << c << " msg: ";
+                cout << "c: " << c << endl << "msg: ";
                 for(j=0; j<N0; j++) {
                     cout << binary_arrays[c][j];
                     message[j] = binary_arrays[c][j];
@@ -469,6 +494,13 @@ void Encrypt_Test(const unsigned int nb_voter, const unsigned int nb_shares, MPK
                 // }
 
                 IBE_Encrypt(Ciphertext, message, id0, MPKD);
+
+                ofstream outfile("../trustee_cred/cipher_comm.dat", ios::binary);  // Open file in binary mode
+                for (ci = 0; ci < 2; ci++) {
+                    outfile.write(reinterpret_cast<const char*>(Ciphertext[ci]), N0 * sizeof(long int));
+                }
+                outfile.close();
+
                 IBE_Decrypt(decrypted, Ciphertext, SKid_FFT);
 
                 // for(int k=0; k<2; k++) {
