@@ -1,7 +1,7 @@
 # Documentation
 
 ## Declaration
-Lattice-IBE-master is referenced to tprest/Lattice-IBE [1], with slight modification for Apple Silicon execution documented in the Issues [2] by me.
+Lattice-IBE-master is referenced to tprest/Lattice-IBE [1], with modifications such as execution on Apple Silicon documented in the Issues [2], and additional functions called by main.py.
 
 ## Installation
 
